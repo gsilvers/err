@@ -1,0 +1,53 @@
+* ERR - Tracking outdoor adventure the "wrong way"
+
+If you run outside, cycle or hike you're probably familiar with and locked into the ubiquitous duo of [[https://www.garmin.com/en-US/][Garmin]] and [[https://www.strava.com][Strava]]. They are pretty cool and encourage tons of people to keep moving.
+
+In 2026 your ride didn't really happen if its not on Strava. We've all heard that one.
+
+In 2026 no commerical phone appliction is immune to pressure to make more money. Strava restricts features and has tons of anti patterns to "encourage" people into subscription. Garmin is quickly moving to compete with Strava on features and [[https://www.garmin.com/en-US/c/subscription-plans/][subscriptions]]. Both also tend to focus a lot on the extremes of cycling and hiking be it remote trips or high performance athletics.
+
+These focus's are fine, but they don't serve the needs of a huge majority of people. Err is an attempt to address some of these shortcomings. It won't be for everyone but if you find yourself angry at some of the above, Err may be for you. Named around wandering errantly and to err and make a mistake Err is my vision for the other way to record and enjoy outdoor exercise. I hope to have it address:
+
+- High Costs
+- User Invasive Behavior
+- Focus on the Extreme and Gamification
+
+** High Costs
+
+My entry to all of this is cycling. Cycling can be as cheap or as expensive as you are willing to pay. You can get great exercise and wonderful experience buying and maintaining a $50 used bike from Facebook Marketplace or you can buy a $10,000+ electric mountain bike with electronic shifting. I assume the same is true to some degree in most outdoor activities be it hiking or rowing. Garmin watches and bike computers are pricy. Subscription services quietly eat your pay check.
+
+I'm pretty lucky I can afford an OK bike but that's not true of everyone. Err will be free. Period. You will never have to pay for anything. What is available in this repo is available to you free of charge. We will attempt to make it available on any and all major mobile device OS's and make installables available here directly if you do not wish to use an app store. APKs will be available right from github and if I can expand into IOS build instructions will be provided.
+
+Most phones can do anything you need in this area but lack free tools to do it. I do not want you to have to pay 15 a month in order to track how far you rode and share it with your friends.
+
+** User Invasive Behavior
+
+Strava and Garmin collect a ton of information and make it very hard for you to access it. They may also sell your information. Err will collect data locally on your device only. If you wish to share it to another tool that's fine but it will be clear what is going on. Your data will always be yours and available for export in simple and interoperable files.
+
+You will be able to for example simply get a CSV file of all of your workouts. 
+
+** Focus on the Extreme and Gamification
+
+Strava and Garmin are for athletes and treat everyone as one. The second you are cycling you're presented with segment times, wattage and hydration advice. Err will strive to be simpler and easier to understand and less aggressive with pushing users to their next expensive piece of kit.
+
+You can make HUGE health gains by simply being consistent and getting some motion in each day. You do not need to put down 500 watts.
+
+Strava and Garmin are not bad guys for this but this is not Err's goal. If you are just looking to smile and get some exercise without targeting your next marathon Err is for you.
+
+
+** Contributing
+
+I'll expand this later but Err is open source and open to contributions. I'll work to get a roadmap published and I'm open to suggestions. For now, raise PR's or raise issues to propose features you cannot impliment. I'm an application developer but I've never developed for Android and its been about 7 years since I did so for IOS. Right now I'm just bootstrapping this thing with Claude as I learn the tools.
+
+Err is free but if you want to contribute financially I'll get the requisite donation tools up here eventually.
+
+** License
+
+Err is licensed under the [[https://www.gnu.org/licenses/agpl-3.0.html][GNU Affero General Public License v3.0 (AGPL-3.0)]].
+
+This means:
+- You are free to use, study, modify, and distribute Err
+- Any modifications you distribute must also be released under the AGPL
+- If you run a modified version as a network service, you must make the source available to users of that service
+
+All contributions to this repository are made under the same license. By submitting a pull request you agree that your contribution will be licensed under the AGPL-3.0.
