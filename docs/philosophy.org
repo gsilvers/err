@@ -1,6 +1,6 @@
 * The Simple Bike Problem
 
-In 2024 a bike shop owner posted a video explaining why he was closing after nine years in business: [[https://www.youtube.com/watch?v=lG-FMJP52g4][Why I'm Closing My Bike Shop After 9 Years (The Truth and The Future)]]. It is worth watching in full. Whatever the specific circumstances of that particular shop, the broader story it points to is one that anyone paying attention to the cycling industry will recognise.
+In 2024 a bike shop owner posted a video explaining why he was closing after nine years in business: [[https://www.youtube.com/watch?v=lG-FMJP52g4][Why I'm Closing My Bike Shop After 9 Years (The Truth and The Future)]]. His shop, [[https://www.bikefarmer.com/][Bike Farmer]], is worth a look. The video is worth watching in full. Whatever the specific circumstances of that particular shop, the broader story it points to is one that anyone paying attention to the cycling industry will recognise.
 
 ** How Racing Ate the Bike
 
