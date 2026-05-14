@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -17,6 +19,10 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
@@ -24,8 +30,28 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Delete existing latest release
+        run: gh release delete latest --yes --cleanup-tag || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          body: |
+            Automated build from commit ${{ github.sha }}.
+
+            **Installing on GrapheneOS:**
+            1. Download `app-debug.apk` below
+            2. Transfer to your device
+            3. Enable *Install unknown apps* for your file manager and tap the APK
+          files: app/build/outputs/apk/debug/app-debug.apk
+          make_latest: true
