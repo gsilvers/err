@@ -1,0 +1,25 @@
+* The Simple Bike Problem
+
+In 2024 a bike shop owner posted a video explaining why he was closing after nine years in business: [[https://www.youtube.com/watch?v=lG-FMJP52g4][Why I'm Closing My Bike Shop After 9 Years (The Truth and The Future)]]. His shop, [[https://www.bikefarmer.com/][Bike Farmer]], is worth a look. The video is worth watching in full. Whatever the specific circumstances of that particular shop, the broader story it points to is one that anyone paying attention to the cycling industry will recognise.
+
+** How Racing Ate the Bike
+
+Road cycling has always had a professional racing tier. For most of its history that tier was largely separate from the bikes that ordinary people rode to work, to the shops, or on weekend rides with friends. Racing technology filtered down slowly and incompletely. A sensible touring bike and a racing bike were clearly different objects built for different purposes.
+
+That separation has largely collapsed. The modern cycling industry, heavily shaped by the commercial logic of professional racing, has pushed the racing bike — or a consumer approximation of it — as the aspirational default for anyone who takes cycling seriously. Electronic shifting, power meters, aerodynamic carbon frames, tubeless tyres with complex setup, proprietary bottom brackets that require special tools: features developed for or popularised by racing have become the baseline expectation even for people who just want to ride comfortably a few times a week.
+
+The consequences are predictable. Bikes became expensive. Maintenance became intimidating. The mechanical simplicity that once made a bicycle one of the most self-sufficient vehicles a person could own has been quietly eroded in the name of marginal performance gains that matter enormously at 45 km/h in a peloton and essentially not at all everywhere else.
+
+** The Software Mirror
+
+Strava and Garmin have followed the same arc. Their products were shaped by and marketed to the performance-oriented end of cycling and running. Segment leaderboards, FTP testing, training load scores, VO2 max estimates, recovery advisor — the entire product language assumes that you are, or aspire to be, an athlete optimising for performance.
+
+This is not a criticism of those products on their own terms. For people who want that, they are genuinely useful. The problem is that there is no real alternative in the mainstream. The casual rider who wants to know how far they went, roughly how long it took, and where the route was, finds themselves inside an application designed around concerns that are entirely foreign to them. Features they do not need obscure the ones they do. Subscription prompts appear for capabilities they never asked for.
+
+** What Err Is Trying to Do
+
+Err starts from the premise that the simple use case — record a ride, look at it later, maybe share it — deserves a tool built specifically for it rather than a cut-down version of a tool built for something else.
+
+The bike shop in that video was caught between an industry pushing complexity and a customer base that largely just wanted to ride. Err is an attempt not to make the same mistake on the software side. The goal is not to build the most powerful activity tracker. It is to build one that does not make you feel like you are using the wrong tool every time you open it.
+
+A fifty dollar used bike from a marketplace listing can give someone more joy and better health than a ten thousand dollar carbon race machine — if it fits their life. The same principle applies here.
