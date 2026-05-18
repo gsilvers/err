@@ -1,0 +1,109 @@
+* Local Development on macOS
+
+This guide covers building Err locally and running it on an Android emulator on macOS.
+
+** Prerequisites
+
+*** Flutter
+
+Install Flutter via Homebrew:
+
+#+begin_src sh
+brew install --cask flutter
+#+end_src
+
+Verify your setup:
+
+#+begin_src sh
+flutter doctor
+#+end_src
+
+All Android-related entries should be green before proceeding. Common gaps and fixes:
+
+| Problem                        | Fix                                              |
+|--------------------------------+--------------------------------------------------|
+| Android SDK missing            | Install Android Studio (see below)               |
+| Android licenses not accepted  | ~flutter doctor --android-licenses~              |
+| cmdline-tools missing          | Android Studio → SDK Manager → SDK Tools tab     |
+
+*** Android Studio
+
+Android Studio provides the Android SDK and the emulator.
+
+#+begin_src sh
+brew install --cask android-studio
+#+end_src
+
+Open Android Studio once after installing — it will download the Android SDK automatically on first launch. You can close it after that completes.
+
+** Building the APK
+
+#+begin_src sh
+flutter pub get
+flutter build apk --debug
+#+end_src
+
+The APK is written to:
+
+#+begin_example
+build/app/outputs/flutter-apk/app-debug.apk
+#+end_example
+
+** Running on an Emulator
+
+*** Create a virtual device
+
+Open Android Studio → *More Actions* → *Virtual Device Manager* → *Create Device*.
+
+Recommended choices:
+- *Hardware*: Pixel 7 (or any phone profile without the Play Store icon, to match GrapheneOS behaviour more closely)
+- *System image*: API 35, ABI x86_64
+
+Complete the wizard and close Android Studio.
+
+You can also list and create devices from the command line:
+
+#+begin_src sh
+flutter emulators
+#+end_src
+
+*** Launch the emulator and run the app
+
+Start the emulator:
+
+#+begin_src sh
+flutter emulators --launch <emulator-id>
+#+end_src
+
+Replace ~<emulator-id>~ with the ID shown by ~flutter emulators~ (e.g. ~Pixel_7_API_35~).
+
+Once the emulator has booted, run the app with hot-reload enabled:
+
+#+begin_src sh
+flutter run
+#+end_src
+
+Flutter will detect the running emulator automatically and deploy the app to it. Press ~r~ in the terminal to hot-reload after code changes, ~R~ for a full restart, and ~q~ to quit.
+
+*** Useful flags
+
+| Command                          | What it does                              |
+|----------------------------------+-------------------------------------------|
+| ~flutter run --debug~            | Default; enables hot reload               |
+| ~flutter run --profile~          | Performance profiling build               |
+| ~flutter devices~                | List all connected devices and emulators  |
+| ~flutter logs~                   | Stream device logs                        |
+
+** Installing on a Physical Device (including GrapheneOS)
+
+Build the APK as above, then:
+
+1. Enable *Developer Options* on the device (Settings → About → tap Build Number 7 times)
+2. Enable *USB Debugging* in Developer Options
+3. Connect via USB and run ~flutter devices~ to confirm it is detected
+4. Run ~flutter run~ — Flutter will deploy directly to the device
+
+For GrapheneOS without USB access, transfer the APK file and sideload it:
+
+1. Enable *Install unknown apps* for your file manager in Settings → Apps
+2. Copy ~app-debug.apk~ to the device and tap it to install
