@@ -1,0 +1,114 @@
+* iOS Development on macOS
+
+This guide covers building Err for iOS and running it in the iOS Simulator on macOS.
+
+A Mac is required — Apple's toolchain does not run on other platforms.
+
+** Prerequisites
+
+*** Xcode
+
+Install Xcode from the Mac App Store. It is a large download (~10 GB); allow time for it to complete.
+
+After installation, accept the license and install the command-line tools:
+
+#+begin_src sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -runFirstLaunch
+#+end_src
+
+*** CocoaPods
+
+Flutter uses CocoaPods to manage iOS dependencies:
+
+#+begin_src sh
+brew install cocoapods
+#+end_src
+
+*** Verify your setup
+
+#+begin_src sh
+flutter doctor
+#+end_src
+
+The Xcode and CocoaPods entries should be green. A common gap:
+
+| Problem                   | Fix                                                  |
+|---------------------------+------------------------------------------------------|
+| Xcode not found           | ~sudo xcode-select --switch /Applications/Xcode.app~ |
+| CocoaPods not installed   | ~brew install cocoapods~                             |
+| iOS deploy tools missing  | ~brew install ideviceinstaller ios-deploy~           |
+
+** Running in the iOS Simulator
+
+*** List available simulators
+
+#+begin_src sh
+flutter emulators
+#+end_src
+
+iOS simulators appear alongside Android ones. To launch one:
+
+#+begin_src sh
+flutter emulators --launch <simulator-id>
+#+end_src
+
+For example: ~flutter emulators --launch apple_ios_simulator~
+
+You can also open the Simulator app directly from Xcode: *Xcode → Open Developer Tool → Simulator*.
+
+To create additional simulator devices (e.g. a specific iPhone model):
+
+#+begin_src sh
+open -a Simulator
+#+end_src
+
+Then in the Simulator menu bar: *File → New Simulator*.
+
+*** Run the app
+
+With a simulator running:
+
+#+begin_src sh
+flutter run
+#+end_src
+
+Flutter detects the active simulator automatically and deploys the app to it. The same interactive commands apply as for Android:
+
+| Key | Action              |
+|-----+---------------------|
+| ~r~ | Hot reload          |
+| ~R~ | Full restart        |
+| ~q~ | Quit                |
+
+To target a specific device when multiple are running:
+
+#+begin_src sh
+flutter devices          # list all running devices
+flutter run -d <device-id>
+#+end_src
+
+** Building an iOS App Bundle
+
+To produce a release build (requires an Apple Developer account for device installation):
+
+#+begin_src sh
+flutter build ios --debug
+#+end_src
+
+The output is at:
+
+#+begin_example
+build/ios/iphoneos/Runner.app
+#+end_example
+
+For simulator testing the debug build is sufficient and does not require signing.
+
+** Notes on Apple Developer Account
+
+Running on a *physical* iOS device requires a free or paid Apple Developer account:
+
+- *Free account*: install directly from Xcode to your own device; 7-day certificate expiry
+- *Paid account ($99/year)*: distribute via TestFlight or the App Store
+
+For now the iOS Simulator covers all local development and testing without any account requirement.
