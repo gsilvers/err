@@ -86,10 +86,19 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _startTime = DateTime.now();
 
     _positionSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
+      locationSettings: Platform.isAndroid
+          ? AndroidSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 5,
+              forceLocationManager: true,
+              intervalDuration: const Duration(seconds: 3),
+            )
+          : AppleSettings(
+              accuracy: LocationAccuracy.bestForNavigation,
+              distanceFilter: 5,
+              activityType: ActivityType.fitness,
+              pauseLocationUpdatesAutomatically: false,
+            ),
     ).listen(_onPosition, onError: (e) {
       setState(() {
         _message = 'GPS error: $e';
@@ -117,7 +126,13 @@ class _TrackerScreenState extends State<TrackerScreen> {
           pos.longitude,
         );
         final altDiff = pos.altitude - _lastPosition!.altitude;
-        if (altDiff > 0) _elevationGainMeters += altDiff;
+        // Require a 2m minimum change to filter GPS altitude noise.
+        // Also skip if altitudeAccuracy is available but worse than 15m.
+        final accuracyOk = pos.altitudeAccuracy <= 0 ||
+            pos.altitudeAccuracy < 15.0;
+        if (altDiff > 2.0 && accuracyOk) {
+          _elevationGainMeters += altDiff;
+        }
       }
       _lastPosition = pos;
       _trackPoints.add(pos);
