@@ -93,7 +93,6 @@ class _TrackerScreenState extends State<TrackerScreen> {
           ? AndroidSettings(
               accuracy: LocationAccuracy.high,
               distanceFilter: 5,
-              forceLocationManager: true,
               intervalDuration: const Duration(seconds: 3),
             )
           : AppleSettings(
@@ -113,6 +112,10 @@ class _TrackerScreenState extends State<TrackerScreen> {
   }
 
   void _onPosition(Position pos) {
+    // Discard low-accuracy fixes — a 40 m horizontal error connecting two
+    // sloppy points inflates distance just as badly as moving.
+    if (pos.accuracy > 25) return;
+
     if (!_gpsReady) {
       // Discard positions acquired more than 5 s before we pressed Start —
       // those are stale cached fixes that would produce a phantom distance jump.
@@ -145,11 +148,12 @@ class _TrackerScreenState extends State<TrackerScreen> {
           pos.longitude,
         );
         final altDiff = pos.altitude - _lastPosition!.altitude;
-        // Require a 2m minimum change to filter GPS altitude noise.
-        // Also skip if altitudeAccuracy is available but worse than 15m.
+        // GPS vertical noise is 10–20 m even under clear sky; a 10 m minimum
+        // prevents random jitter from accumulating phantom elevation gain.
+        // Also skip if altitudeAccuracy is available but worse than 15 m.
         final accuracyOk = pos.altitudeAccuracy <= 0 ||
             pos.altitudeAccuracy < 15.0;
-        if (altDiff > 2.0 && accuracyOk) {
+        if (altDiff > 10.0 && accuracyOk) {
           _elevationGainMeters += altDiff;
         }
       }
