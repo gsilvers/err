@@ -433,6 +433,65 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
   // ── Theme picker ─────────────────────────────────────────────────────────
 
+  void _openInfo() {
+    final t = widget.theme;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: t.screenBackground,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Row(
+          children: [
+            Icon(Icons.terrain, color: t.startActive, size: 22),
+            const SizedBox(width: 8),
+            Text('Err', style: TextStyle(color: t.statValue, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Version 0.1.0', style: TextStyle(color: t.statLabel, fontSize: 12)),
+            const SizedBox(height: 14),
+            _InfoRow(
+              icon: Icons.straighten,
+              iconColor: t.statIcon,
+              textColor: t.statValue,
+              text: 'Records distance, elevation gain, and time for any outdoor activity.',
+            ),
+            const SizedBox(height: 10),
+            _InfoRow(
+              icon: Icons.show_chart,
+              iconColor: t.statIcon,
+              textColor: t.statValue,
+              text: 'Uses the barometric pressure sensor for accurate elevation, falling back to GPS when unavailable.',
+            ),
+            const SizedBox(height: 10),
+            _InfoRow(
+              icon: Icons.palette_outlined,
+              iconColor: t.statIcon,
+              textColor: t.statValue,
+              text: 'Fully themeable — 38 built-in color themes ported from the ef-themes collection, plus custom theme creation. Tap the palette icon to switch.',
+            ),
+            const SizedBox(height: 10),
+            _InfoRow(
+              icon: Icons.save_alt,
+              iconColor: t.statIcon,
+              textColor: t.statValue,
+              text: 'Saves each trip as a GPX and CSV file to Android/data/com.example.err/files/ on your device.',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Close', style: TextStyle(color: t.startActive)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openThemePicker() {
     showModalBottomSheet<void>(
       context: context,
@@ -507,6 +566,12 @@ class _TrackerScreenState extends State<TrackerScreen> {
         title: Text('Err', style: TextStyle(color: t.appBarTitle)),
         iconTheme: IconThemeData(color: t.appBarTitle),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            color: t.appBarTitle,
+            tooltip: 'About',
+            onPressed: _openInfo,
+          ),
           IconButton(
             icon: const Icon(Icons.palette_outlined),
             color: t.appBarTitle,
@@ -661,6 +726,36 @@ class _TrackerScreenState extends State<TrackerScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─── Info row (used in about dialog) ─────────────────────────────────────────
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.icon,
+    required this.iconColor,
+    required this.textColor,
+    required this.text,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final Color textColor;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: iconColor),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(text, style: TextStyle(color: textColor, fontSize: 13, height: 1.4)),
+        ),
+      ],
     );
   }
 }
