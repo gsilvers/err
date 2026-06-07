@@ -1,0 +1,280 @@
+import 'package:flutter/material.dart';
+
+import 'err_theme.dart';
+
+Color _c(String hex) =>
+    Color(int.parse('FF${hex.replaceFirst('#', '')}', radix: 16));
+
+ErrTheme _t({
+  required String id,
+  required String name,
+  required bool dark,
+  required String bgMain,
+  required String bgDim,
+  required String bgActive,
+  required String fgMain,
+  required String fgDim,
+  required String border,
+  required String green,
+  required String red,
+  required String cyan,
+}) =>
+    ErrTheme(
+      id: id,
+      name: name,
+      isDark: dark,
+      isBuiltIn: true,
+      screenBackground: _c(bgMain),
+      appBarBackground: _c(bgDim),
+      appBarTitle: _c(fgMain),
+      statIcon: _c(fgDim),
+      statLabel: _c(fgDim),
+      statValue: _c(fgMain),
+      startActive: _c(green),
+      startDisabled: _c(bgActive),
+      startForeground: Colors.white,
+      stopActive: _c(red),
+      stopDisabled: _c(bgActive),
+      stopForeground: Colors.white,
+      toggleSelectedBackground: _c(bgActive),
+      toggleSelectedText: _c(fgMain),
+      toggleUnselectedBackground: _c(bgDim),
+      toggleUnselectedText: _c(fgDim),
+      toggleBorder: _c(border),
+      messageInfo: _c(cyan),
+      messageError: _c(red),
+    );
+
+final List<ErrTheme> builtinThemes = [
+  // ── Dark themes ────────────────────────────────────────────────────────────
+  _t(
+    id: 'ef-autumn', name: 'Ef Autumn', dark: true,
+    bgMain: '#0f0e06', bgDim: '#26211d', bgActive: '#56524f',
+    fgMain: '#cfbcba', fgDim: '#887c8a', border: '#58514f',
+    green: '#2fa526', red: '#ef656a', cyan: '#4fb0cf',
+  ),
+  _t(
+    id: 'ef-atlantis', name: 'Ef Atlantis', dark: true,
+    bgMain: '#1a143e', bgDim: '#1a204b', bgActive: '#3a4661',
+    fgMain: '#bfcccf', fgDim: '#7f8385', border: '#454e59',
+    green: '#1fa526', red: '#ef656a', cyan: '#4fb0cf',
+  ),
+  _t(
+    id: 'ef-bio', name: 'Ef Bio', dark: true,
+    bgMain: '#111111', bgDim: '#222522', bgActive: '#505250',
+    fgMain: '#cfdfd5', fgDim: '#808f80', border: '#525959',
+    green: '#3fb83f', red: '#ef6560', cyan: '#6fc5ef',
+  ),
+  _t(
+    id: 'ef-cherie', name: 'Ef Cherie', dark: true,
+    bgMain: '#190a0f', bgDim: '#291f26', bgActive: '#594a4f',
+    fgMain: '#d3cfcf', fgDim: '#808898', border: '#695960',
+    green: '#60b444', red: '#ff7359', cyan: '#8fbaef',
+  ),
+  _t(
+    id: 'ef-dark', name: 'Ef Dark', dark: true,
+    bgMain: '#000000', bgDim: '#1a1a1a', bgActive: '#4b4b4b',
+    fgMain: '#d0d0d0', fgDim: '#857f8f', border: '#4f4f5f',
+    green: '#0faa26', red: '#ef6560', cyan: '#4fbaef',
+  ),
+  _t(
+    id: 'ef-deuteranopia-dark', name: 'Ef Deuteranopia Dark', dark: true,
+    bgMain: '#000a1f', bgDim: '#121f34', bgActive: '#445165',
+    fgMain: '#ddddee', fgDim: '#7f8797', border: '#555a64',
+    green: '#3faa26', red: '#cf8560', cyan: '#5faaef',
+  ),
+  _t(
+    id: 'ef-dream', name: 'Ef Dream', dark: true,
+    bgMain: '#232025', bgDim: '#322f34', bgActive: '#5b595e',
+    fgMain: '#efd5c5', fgDim: '#8f8886', border: '#635850',
+    green: '#51b04f', red: '#ff6f6f', cyan: '#6fb3c0',
+  ),
+  _t(
+    id: 'ef-duo-dark', name: 'Ef Duo Dark', dark: true,
+    bgMain: '#070019', bgDim: '#1d1a26', bgActive: '#4a4759',
+    fgMain: '#d0d0d0', fgDim: '#857f8f', border: '#545f6f',
+    green: '#1fa526', red: '#ef656a', cyan: '#5faaef',
+  ),
+  _t(
+    id: 'ef-elea-dark', name: 'Ef Elea Dark', dark: true,
+    bgMain: '#222524', bgDim: '#303332', bgActive: '#5e6160',
+    fgMain: '#eaf2ef', fgDim: '#969faf', border: '#5d5f63',
+    green: '#7fc87f', red: '#ff656a', cyan: '#6fcfd2',
+  ),
+  _t(
+    id: 'ef-fig', name: 'Ef Fig', dark: true,
+    bgMain: '#3b2043', bgDim: '#432e4e', bgActive: '#6a586e',
+    fgMain: '#e4d3e1', fgDim: '#9d9d9d', border: '#796f6e',
+    green: '#7fbb3f', red: '#ef797f', cyan: '#5fc0dc',
+  ),
+  _t(
+    id: 'ef-maris-dark', name: 'Ef Maris Dark', dark: true,
+    bgMain: '#131c2b', bgDim: '#1d2c39', bgActive: '#4a5664',
+    fgMain: '#eaedef', fgDim: '#969faf', border: '#595a63',
+    green: '#41bf4f', red: '#ff6f6f', cyan: '#2fd0db',
+  ),
+  _t(
+    id: 'ef-melissa-dark', name: 'Ef Melissa Dark', dark: true,
+    bgMain: '#352718', bgDim: '#483426', bgActive: '#79665f',
+    fgMain: '#e8e4b1', fgDim: '#90918a', border: '#6f5f58',
+    green: '#6fd560', red: '#ff7f7f', cyan: '#6fcad0',
+  ),
+  _t(
+    id: 'ef-night', name: 'Ef Night', dark: true,
+    bgMain: '#000e17', bgDim: '#1a202b', bgActive: '#444e59',
+    fgMain: '#afbcbf', fgDim: '#70819f', border: '#3a4a66',
+    green: '#1fa526', red: '#ef656a', cyan: '#4fb0cf',
+  ),
+  _t(
+    id: 'ef-owl', name: 'Ef Owl', dark: true,
+    bgMain: '#292c2f', bgDim: '#373b3d', bgActive: '#60676b',
+    fgMain: '#d0d0d0', fgDim: '#857f8f', border: '#4f5f66',
+    green: '#70bb70', red: '#d67869', cyan: '#8fb8ea',
+  ),
+  _t(
+    id: 'ef-rosa', name: 'Ef Rosa', dark: true,
+    bgMain: '#322023', bgDim: '#432e32', bgActive: '#6a5862',
+    fgMain: '#e4d3e1', fgDim: '#9d9d9d', border: '#6f5f58',
+    green: '#5fbb5f', red: '#ff707f', cyan: '#5fc0dc',
+  ),
+  _t(
+    id: 'ef-symbiosis', name: 'Ef Symbiosis', dark: true,
+    bgMain: '#130911', bgDim: '#221920', bgActive: '#4b3f47',
+    fgMain: '#d0d0d0', fgDim: '#857f8f', border: '#4d4a4b',
+    green: '#0faa26', red: '#ef6360', cyan: '#4fbaef',
+  ),
+  _t(
+    id: 'ef-trio-dark', name: 'Ef Trio Dark', dark: true,
+    bgMain: '#160f0f', bgDim: '#2a2228', bgActive: '#564f55',
+    fgMain: '#d8cfd5', fgDim: '#908890', border: '#605760',
+    green: '#60b444', red: '#f48359', cyan: '#8fbaff',
+  ),
+  _t(
+    id: 'ef-tritanopia-dark', name: 'Ef Tritanopia Dark', dark: true,
+    bgMain: '#15050f', bgDim: '#282026', bgActive: '#554f4f',
+    fgMain: '#dfd0d5', fgDim: '#908890', border: '#555564',
+    green: '#2fa526', red: '#cf4f5f', cyan: '#3fafcf',
+  ),
+  _t(
+    id: 'ef-winter', name: 'Ef Winter', dark: true,
+    bgMain: '#0f0b15', bgDim: '#1d202f', bgActive: '#4a4f62',
+    fgMain: '#b8c6d5', fgDim: '#807c9f', border: '#4a4955',
+    green: '#29a444', red: '#f47359', cyan: '#4fbaef',
+  ),
+
+  // ── Light themes ───────────────────────────────────────────────────────────
+  _t(
+    id: 'ef-arbutus', name: 'Ef Arbutus', dark: false,
+    bgMain: '#ffead8', bgDim: '#f0d8cf', bgActive: '#c7b2ab',
+    fgMain: '#393330', fgDim: '#6e678f', border: '#c0b4a6',
+    green: '#007000', red: '#b0000f', cyan: '#3f69af',
+  ),
+  _t(
+    id: 'ef-arcadia', name: 'Ef Arcadia', dark: false,
+    bgMain: '#d6e4d3', bgDim: '#ced7c8', bgActive: '#b0b7aa',
+    fgMain: '#40314e', fgDim: '#646170', border: '#959a9f',
+    green: '#206020', red: '#882000', cyan: '#125a7f',
+  ),
+  _t(
+    id: 'ef-cyprus', name: 'Ef Cyprus', dark: false,
+    bgMain: '#fcf7ef', bgDim: '#f0ece0', bgActive: '#c5c3b8',
+    fgMain: '#242521', fgDim: '#59786f', border: '#c4c0b6',
+    green: '#006f00', red: '#9f0d0f', cyan: '#1f70af',
+  ),
+  _t(
+    id: 'ef-day', name: 'Ef Day', dark: false,
+    bgMain: '#fff5ea', bgDim: '#f2e9db', bgActive: '#c9c0b8',
+    fgMain: '#584141', fgDim: '#63728f', border: '#c8bdb6',
+    green: '#007a0a', red: '#ba2d2f', cyan: '#3f60af',
+  ),
+  _t(
+    id: 'ef-deuteranopia-light', name: 'Ef Deuteranopia Light', dark: false,
+    bgMain: '#f5f5ff', bgDim: '#e8e8ea', bgActive: '#b3b3c0',
+    fgMain: '#1a1a2f', fgDim: '#70627f', border: '#bcbcd0',
+    green: '#217a3c', red: '#d3303a', cyan: '#1f6fbf',
+  ),
+  _t(
+    id: 'ef-duo-light', name: 'Ef Duo Light', dark: false,
+    bgMain: '#fff8f0', bgDim: '#f6ece8', bgActive: '#c7c0ba',
+    fgMain: '#222222', fgDim: '#63728f', border: '#baafba',
+    green: '#217a3c', red: '#cc3333', cyan: '#1f6fbf',
+  ),
+  _t(
+    id: 'ef-eagle', name: 'Ef Eagle', dark: false,
+    bgMain: '#f1ecd0', bgDim: '#e4dbc0', bgActive: '#aea88e',
+    fgMain: '#231a1f', fgDim: '#685f53', border: '#7f785f',
+    green: '#226022', red: '#882000', cyan: '#125a7f',
+  ),
+  _t(
+    id: 'ef-elea-light', name: 'Ef Elea Light', dark: false,
+    bgMain: '#edf5e2', bgDim: '#e3e9d6', bgActive: '#b0b7aa',
+    fgMain: '#221321', fgDim: '#676470', border: '#a5aaaf',
+    green: '#00601f', red: '#c3303a', cyan: '#1f70af',
+  ),
+  _t(
+    id: 'ef-frost', name: 'Ef Frost', dark: false,
+    bgMain: '#fcffff', bgDim: '#eaefef', bgActive: '#b5b8b8',
+    fgMain: '#232323', fgDim: '#66657f', border: '#b0b7c0',
+    green: '#008a00', red: '#c42d2f', cyan: '#1f6fbf',
+  ),
+  _t(
+    id: 'ef-kassio', name: 'Ef Kassio', dark: false,
+    bgMain: '#fff7f7', bgDim: '#efe7e7', bgActive: '#c0bbbb',
+    fgMain: '#201f36', fgDim: '#776f79', border: '#bab7bc',
+    green: '#217a3c', red: '#b00234', cyan: '#2f5f9f',
+  ),
+  _t(
+    id: 'ef-light', name: 'Ef Light', dark: false,
+    bgMain: '#ffffff', bgDim: '#efefef', bgActive: '#b3b3b3',
+    fgMain: '#202020', fgDim: '#68759f', border: '#bfc4da',
+    green: '#217a3c', red: '#d3303a', cyan: '#1f6fbf',
+  ),
+  _t(
+    id: 'ef-maris-light', name: 'Ef Maris Light', dark: false,
+    bgMain: '#edf4f8', bgDim: '#e0e7ef', bgActive: '#afb8c3',
+    fgMain: '#151a27', fgDim: '#676470', border: '#a2a6af',
+    green: '#007010', red: '#c3303a', cyan: '#1f66af',
+  ),
+  _t(
+    id: 'ef-melissa-light', name: 'Ef Melissa Light', dark: false,
+    bgMain: '#fff6d8', bgDim: '#f5e9cb', bgActive: '#c7b7a6',
+    fgMain: '#484431', fgDim: '#68708a', border: '#c5baa6',
+    green: '#007a0a', red: '#ba2d2f', cyan: '#3f60af',
+  ),
+  _t(
+    id: 'ef-orange', name: 'Ef Orange', dark: false,
+    bgMain: '#ffedc9', bgDim: '#f7e5b6', bgActive: '#c9b088',
+    fgMain: '#6c4631', fgDim: '#6f6a70', border: '#cfbe9b',
+    green: '#007a0a', red: '#ba2d2f', cyan: '#467080',
+  ),
+  _t(
+    id: 'ef-reverie', name: 'Ef Reverie', dark: false,
+    bgMain: '#f3eddf', bgDim: '#e5d6d4', bgActive: '#b9aaa8',
+    fgMain: '#4f204f', fgDim: '#6f6877', border: '#c5afb6',
+    green: '#007a0a', red: '#ba2d2f', cyan: '#3060af',
+  ),
+  _t(
+    id: 'ef-spring', name: 'Ef Spring', dark: false,
+    bgMain: '#f6fff9', bgDim: '#e8f0f0', bgActive: '#c0c6c3',
+    fgMain: '#34494a', fgDim: '#777294', border: '#b4c4c0',
+    green: '#1a870f', red: '#c42d2f', cyan: '#1f6fbf',
+  ),
+  _t(
+    id: 'ef-summer', name: 'Ef Summer', dark: false,
+    bgMain: '#fff2f3', bgDim: '#f2e4ea', bgActive: '#cfb3c4',
+    fgMain: '#4f4073', fgDim: '#786e74', border: '#c6bbc6',
+    green: '#217a3c', red: '#d3303a', cyan: '#1f6fbf',
+  ),
+  _t(
+    id: 'ef-trio-light', name: 'Ef Trio Light', dark: false,
+    bgMain: '#f8f5ff', bgDim: '#ebe7f1', bgActive: '#c3c0c9',
+    fgMain: '#4f3363', fgDim: '#786e74', border: '#c6bac5',
+    green: '#057800', red: '#c3303a', cyan: '#1f6fbf',
+  ),
+  _t(
+    id: 'ef-tritanopia-light', name: 'Ef Tritanopia Light', dark: false,
+    bgMain: '#fff9f9', bgDim: '#efecec', bgActive: '#bdb9b9',
+    fgMain: '#1a1a1a', fgDim: '#756275', border: '#adadad',
+    green: '#217a3c', red: '#aa0010', cyan: '#2070af',
+  ),
+];
