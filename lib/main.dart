@@ -34,6 +34,7 @@ class TrackerScreen extends StatefulWidget {
 class _TrackerScreenState extends State<TrackerScreen> {
   bool _isTracking = false;
   bool _starting = false;
+  bool _gpsReady = false;
   bool _useImperial = false;
   String? _message;
   bool _messageIsError = false;
@@ -61,7 +62,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
   Future<void> _start() async {
     setState(() {
       _starting = true;
-      _message = null;
+      _message = 'Waiting for GPS lock…';
+      _messageIsError = false;
     });
 
     LocationPermission permission = await Geolocator.checkPermission();
@@ -82,6 +84,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _elevationGainMeters = 0;
     _elapsed = Duration.zero;
     _lastPosition = null;
+    _gpsReady = false;
     _trackPoints.clear();
     _startTime = DateTime.now();
 
@@ -106,17 +109,33 @@ class _TrackerScreenState extends State<TrackerScreen> {
       });
     });
 
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() => _elapsed = DateTime.now().difference(_startTime!));
-    });
-
-    setState(() {
-      _isTracking = true;
-      _starting = false;
-    });
+    // Timer and _isTracking flip happen in _onPosition once a fresh fix arrives.
   }
 
   void _onPosition(Position pos) {
+    if (!_gpsReady) {
+      // Discard positions acquired more than 5 s before we pressed Start —
+      // those are stale cached fixes that would produce a phantom distance jump.
+      final staleThreshold =
+          _startTime!.subtract(const Duration(seconds: 5));
+      if (pos.timestamp.isBefore(staleThreshold)) return;
+
+      // Fresh fix — anchor here and begin active tracking.
+      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        setState(() => _elapsed = DateTime.now().difference(_startTime!));
+      });
+      setState(() {
+        _gpsReady = true;
+        _startTime = DateTime.now();
+        _lastPosition = pos;
+        _trackPoints.add(pos);
+        _isTracking = true;
+        _starting = false;
+        _message = null;
+      });
+      return;
+    }
+
     setState(() {
       if (_lastPosition != null) {
         _distanceMeters += Geolocator.distanceBetween(
@@ -145,7 +164,11 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _ticker?.cancel();
     _ticker = null;
 
-    setState(() => _isTracking = false);
+    setState(() {
+      _isTracking = false;
+      _starting = false;
+      _gpsReady = false;
+    });
 
     if (_trackPoints.isEmpty) {
       setState(() {
@@ -361,7 +384,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: _isTracking ? _stop : null,
+                      onPressed: (_isTracking || _starting) ? _stop : null,
                       style: FilledButton.styleFrom(
                         backgroundColor: Colors.red,
                         disabledBackgroundColor:
