@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 
 void main() {
   runApp(const ErrApp());
@@ -34,6 +36,7 @@ class TrackerScreen extends StatefulWidget {
 class _TrackerScreenState extends State<TrackerScreen> {
   bool _isTracking = false;
   bool _starting = false;
+  bool _gpsReady = false;
   bool _useImperial = false;
   String? _message;
   bool _messageIsError = false;
@@ -46,6 +49,9 @@ class _TrackerScreenState extends State<TrackerScreen> {
   DateTime? _startTime;
   final List<Position> _trackPoints = [];
   StreamSubscription<Position>? _positionSub;
+  StreamSubscription<BarometerEvent>? _baroSub;
+  double? _lastBaroAltitude;
+  bool _baroAvailable = false;
   Timer? _ticker;
   Timer? _clockTicker;
 
@@ -61,7 +67,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
   Future<void> _start() async {
     setState(() {
       _starting = true;
-      _message = null;
+      _message = 'Waiting for GPS lock…';
+      _messageIsError = false;
     });
 
     LocationPermission permission = await Geolocator.checkPermission();
@@ -82,6 +89,9 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _elevationGainMeters = 0;
     _elapsed = Duration.zero;
     _lastPosition = null;
+    _gpsReady = false;
+    _baroAvailable = false;
+    _lastBaroAltitude = null;
     _trackPoints.clear();
     _startTime = DateTime.now();
 
@@ -90,7 +100,6 @@ class _TrackerScreenState extends State<TrackerScreen> {
           ? AndroidSettings(
               accuracy: LocationAccuracy.high,
               distanceFilter: 5,
-              forceLocationManager: true,
               intervalDuration: const Duration(seconds: 3),
             )
           : AppleSettings(
@@ -106,17 +115,68 @@ class _TrackerScreenState extends State<TrackerScreen> {
       });
     });
 
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() => _elapsed = DateTime.now().difference(_startTime!));
+    // Start barometer; errors mean the device has no sensor — fall back to GPS.
+    _baroSub = Sensors().barometerEventStream(
+      samplingPeriod: const Duration(seconds: 2),
+    ).listen(_onBarometer, onError: (_) {
+      _baroAvailable = false;
     });
 
-    setState(() {
-      _isTracking = true;
-      _starting = false;
-    });
+    // Timer and _isTracking flip happen in _onPosition once a fresh fix arrives.
+  }
+
+  double _pressureToAltitude(double hPa) =>
+      44330.0 * (1.0 - pow(hPa / 1013.25, 1.0 / 5.255));
+
+  void _onBarometer(BarometerEvent event) {
+    final alt = _pressureToAltitude(event.pressure);
+    if (!_gpsReady) {
+      // Keep the anchor fresh during the GPS-wait phase so the first
+      // elevation delta after lock is computed from a clean baseline.
+      _lastBaroAltitude = alt;
+      _baroAvailable = true;
+      return;
+    }
+    _baroAvailable = true;
+    if (_lastBaroAltitude != null) {
+      final altDiff = alt - _lastBaroAltitude!;
+      // 3 m threshold: barometric accuracy is ~0.5 m, so 3 m is conservative
+      // yet still filters out pressure fluctuations from handling the device.
+      if (altDiff > 3.0) {
+        setState(() => _elevationGainMeters += altDiff);
+      }
+    }
+    _lastBaroAltitude = alt;
   }
 
   void _onPosition(Position pos) {
+    // Discard low-accuracy fixes — a 40 m horizontal error connecting two
+    // sloppy points inflates distance just as badly as moving.
+    if (pos.accuracy > 25) return;
+
+    if (!_gpsReady) {
+      // Discard positions acquired more than 5 s before we pressed Start —
+      // those are stale cached fixes that would produce a phantom distance jump.
+      final staleThreshold =
+          _startTime!.subtract(const Duration(seconds: 5));
+      if (pos.timestamp.isBefore(staleThreshold)) return;
+
+      // Fresh fix — anchor here and begin active tracking.
+      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        setState(() => _elapsed = DateTime.now().difference(_startTime!));
+      });
+      setState(() {
+        _gpsReady = true;
+        _startTime = DateTime.now();
+        _lastPosition = pos;
+        _trackPoints.add(pos);
+        _isTracking = true;
+        _starting = false;
+        _message = null;
+      });
+      return;
+    }
+
     setState(() {
       if (_lastPosition != null) {
         _distanceMeters += Geolocator.distanceBetween(
@@ -125,13 +185,15 @@ class _TrackerScreenState extends State<TrackerScreen> {
           pos.latitude,
           pos.longitude,
         );
-        final altDiff = pos.altitude - _lastPosition!.altitude;
-        // Require a 2m minimum change to filter GPS altitude noise.
-        // Also skip if altitudeAccuracy is available but worse than 15m.
-        final accuracyOk = pos.altitudeAccuracy <= 0 ||
-            pos.altitudeAccuracy < 15.0;
-        if (altDiff > 2.0 && accuracyOk) {
-          _elevationGainMeters += altDiff;
+        // Only use GPS altitude when the barometer is unavailable — GPS
+        // vertical noise (10–20 m) is far worse than the barometric sensor.
+        if (!_baroAvailable) {
+          final altDiff = pos.altitude - _lastPosition!.altitude;
+          final accuracyOk = pos.altitudeAccuracy <= 0 ||
+              pos.altitudeAccuracy < 15.0;
+          if (altDiff > 10.0 && accuracyOk) {
+            _elevationGainMeters += altDiff;
+          }
         }
       }
       _lastPosition = pos;
@@ -142,10 +204,17 @@ class _TrackerScreenState extends State<TrackerScreen> {
   Future<void> _stop() async {
     await _positionSub?.cancel();
     _positionSub = null;
+    await _baroSub?.cancel();
+    _baroSub = null;
     _ticker?.cancel();
     _ticker = null;
 
-    setState(() => _isTracking = false);
+    setState(() {
+      _isTracking = false;
+      _starting = false;
+      _gpsReady = false;
+      _baroAvailable = false;
+    });
 
     if (_trackPoints.isEmpty) {
       setState(() {
@@ -156,7 +225,13 @@ class _TrackerScreenState extends State<TrackerScreen> {
     }
 
     try {
-      final dir = await getApplicationDocumentsDirectory();
+      // On Android use external storage so files are visible in the Files app
+      // at Android/data/com.example.err/files/. Falls back to internal docs
+      // on iOS and on Android if external storage is unavailable.
+      final dir = (Platform.isAndroid
+              ? await getExternalStorageDirectory()
+              : null) ??
+          await getApplicationDocumentsDirectory();
       final stamp = (_startTime ?? DateTime.now())
           .toIso8601String()
           .replaceAll(':', '-')
@@ -253,6 +328,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
   @override
   void dispose() {
     _positionSub?.cancel();
+    _baroSub?.cancel();
     _ticker?.cancel();
     _clockTicker?.cancel();
     super.dispose();
@@ -361,7 +437,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
                   const SizedBox(width: 16),
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: _isTracking ? _stop : null,
+                      onPressed: (_isTracking || _starting) ? _stop : null,
                       style: FilledButton.styleFrom(
                         backgroundColor: Colors.red,
                         disabledBackgroundColor:

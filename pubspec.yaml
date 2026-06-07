@@ -36,6 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   geolocator: ^13.0.0
   path_provider: ^2.1.0
+  sensors_plus: ^7.0.0
 
 dev_dependencies:
   flutter_test:
