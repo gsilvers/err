@@ -22,11 +22,11 @@ jobs:
         run: flutter pub get
 
       - name: Decode keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > $HOME/err-release.jks
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ github.workspace }}/err-release.jks
 
       - name: Build release APK
         env:
-          KEYSTORE_PATH: ${{ env.HOME }}/err-release.jks
+          KEYSTORE_PATH: ${{ github.workspace }}/err-release.jks
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
