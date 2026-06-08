@@ -21,31 +21,31 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build debug APK
-        run: flutter build apk --debug
+      - name: Build release APK
+        run: flutter build apk --release --build-number=${{ github.run_number }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: app-release
+          path: build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Delete existing latest release
-        run: gh release delete latest --yes --cleanup-tag || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish latest release
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest Build
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
           body: |
-            Automated build from commit ${{ github.sha }}.
+            Automated release build from commit ${{ github.sha }}.
 
-            **Installing on GrapheneOS:**
-            1. Download `app-debug.apk` below
+            **Installing via Obtainium:**
+            Point Obtainium at this repo — it will track the latest release automatically.
+
+            **Manual install on GrapheneOS:**
+            1. Download `app-release.apk` below
             2. Transfer to your device
             3. Enable *Install unknown apps* for your file manager and tap the APK
-          files: build/app/outputs/flutter-apk/app-debug.apk
+          files: build/app/outputs/flutter-apk/app-release.apk
           make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
