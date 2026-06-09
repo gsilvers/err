@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'builtin_themes.dart';
 import 'custom_theme_editor.dart';
@@ -142,6 +143,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
   bool _starting = false;
   bool _gpsReady = false;
   bool _useImperial = false;
+  bool _keepScreenOn = false;
   String? _message;
   bool _messageIsError = false;
 
@@ -151,7 +153,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
   Position? _lastPosition;
   DateTime? _startTime;
-  final List<Position> _trackPoints = [];
+  List<List<Position>> _segments = [];
+  SharedPreferences? _prefs;
   StreamSubscription<Position>? _positionSub;
   StreamSubscription<BarometerEvent>? _baroSub;
   double? _lastBaroAltitude;
@@ -166,6 +169,28 @@ class _TrackerScreenState extends State<TrackerScreen> {
       const Duration(seconds: 1),
       (_) => setState(() {}),
     );
+    _loadPrefs();
+  }
+
+  Future<void> _loadPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _prefs = prefs;
+      _keepScreenOn = prefs.getBool('keep_screen_on') ?? false;
+    });
+  }
+
+  void _setKeepScreenOn(bool v) {
+    setState(() => _keepScreenOn = v);
+    _prefs?.setBool('keep_screen_on', v);
+    if (_isTracking) {
+      if (v) {
+        WakelockPlus.enable();
+      } else {
+        WakelockPlus.disable();
+      }
+    }
   }
 
   // ── GPS start/stop ──────────────────────────────────────────────────────
@@ -198,8 +223,10 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _gpsReady = false;
     _baroAvailable = false;
     _lastBaroAltitude = null;
-    _trackPoints.clear();
+    _segments = [[]];
     _startTime = DateTime.now();
+
+    if (_keepScreenOn) await WakelockPlus.enable();
 
     _positionSub = Geolocator.getPositionStream(
       locationSettings: Platform.isAndroid
@@ -207,12 +234,19 @@ class _TrackerScreenState extends State<TrackerScreen> {
               accuracy: LocationAccuracy.high,
               distanceFilter: 5,
               intervalDuration: const Duration(seconds: 3),
+              foregroundNotificationConfig: const ForegroundNotificationConfig(
+                notificationText: 'Err is recording your activity',
+                notificationTitle: 'Tracking active',
+                enableWakeLock: true,
+              ),
             )
           : AppleSettings(
               accuracy: LocationAccuracy.bestForNavigation,
               distanceFilter: 5,
               activityType: ActivityType.fitness,
               pauseLocationUpdatesAutomatically: false,
+              allowBackgroundLocationUpdates: true,
+              showBackgroundLocationIndicator: true,
             ),
     ).listen(_onPosition, onError: (e) {
       setState(() {
@@ -273,7 +307,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
         _gpsReady = true;
         _startTime = DateTime.now();
         _lastPosition = pos;
-        _trackPoints.add(pos);
+        _segments.last.add(pos);
         _isTracking = true;
         _starting = false;
         _message = null;
@@ -283,25 +317,35 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
     setState(() {
       if (_lastPosition != null) {
-        _distanceMeters += Geolocator.distanceBetween(
-          _lastPosition!.latitude,
-          _lastPosition!.longitude,
-          pos.latitude,
-          pos.longitude,
-        );
-        // Only use GPS altitude when the barometer is unavailable — GPS
-        // vertical noise (10–20 m) is far worse than the barometric sensor.
-        if (!_baroAvailable) {
-          final altDiff = pos.altitude - _lastPosition!.altitude;
-          final accuracyOk = pos.altitudeAccuracy <= 0 ||
-              pos.altitudeAccuracy < 15.0;
-          if (altDiff > 10.0 && accuracyOk) {
-            _elevationGainMeters += altDiff;
+        final gapSec = pos.timestamp
+            .difference(_lastPosition!.timestamp)
+            .inSeconds
+            .abs();
+        if (gapSec > 60) {
+          // GPS was lost for more than 60 s — open a new segment so the gap
+          // appears as a break in GPX viewers and is not counted as distance.
+          _segments.add([]);
+        } else {
+          _distanceMeters += Geolocator.distanceBetween(
+            _lastPosition!.latitude,
+            _lastPosition!.longitude,
+            pos.latitude,
+            pos.longitude,
+          );
+          // Only use GPS altitude when the barometer is unavailable — GPS
+          // vertical noise (10–20 m) is far worse than the barometric sensor.
+          if (!_baroAvailable) {
+            final altDiff = pos.altitude - _lastPosition!.altitude;
+            final accuracyOk = pos.altitudeAccuracy <= 0 ||
+                pos.altitudeAccuracy < 15.0;
+            if (altDiff > 10.0 && accuracyOk) {
+              _elevationGainMeters += altDiff;
+            }
           }
         }
       }
       _lastPosition = pos;
-      _trackPoints.add(pos);
+      _segments.last.add(pos);
     });
   }
 
@@ -313,6 +357,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _ticker?.cancel();
     _ticker = null;
 
+    if (_keepScreenOn) await WakelockPlus.disable();
+
     setState(() {
       _isTracking = false;
       _starting = false;
@@ -320,7 +366,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
       _baroAvailable = false;
     });
 
-    if (_trackPoints.isEmpty) {
+    if (_segments.every((s) => s.isEmpty)) {
       setState(() {
         _message = 'No points recorded — nothing saved.';
         _messageIsError = true;
@@ -362,18 +408,21 @@ class _TrackerScreenState extends State<TrackerScreen> {
       ..writeln(
           '<gpx version="1.1" creator="Err" xmlns="http://www.topografix.com/GPX/1/1">')
       ..writeln('  <trk>')
-      ..writeln('    <name>Track $stamp</name>')
-      ..writeln('    <trkseg>');
-    for (final p in _trackPoints) {
-      buf
-        ..writeln('      <trkpt lat="${p.latitude}" lon="${p.longitude}">')
-        ..writeln('        <ele>${p.altitude.toStringAsFixed(2)}</ele>')
-        ..writeln(
-            '        <time>${p.timestamp.toUtc().toIso8601String()}</time>')
-        ..writeln('      </trkpt>');
+      ..writeln('    <name>Track $stamp</name>');
+    for (final segment in _segments) {
+      if (segment.isEmpty) continue;
+      buf.writeln('    <trkseg>');
+      for (final p in segment) {
+        buf
+          ..writeln('      <trkpt lat="${p.latitude}" lon="${p.longitude}">')
+          ..writeln('        <ele>${p.altitude.toStringAsFixed(2)}</ele>')
+          ..writeln(
+              '        <time>${p.timestamp.toUtc().toIso8601String()}</time>')
+          ..writeln('      </trkpt>');
+      }
+      buf.writeln('    </trkseg>');
     }
     buf
-      ..writeln('    </trkseg>')
       ..writeln('  </trk>')
       ..writeln('</gpx>');
     await File('$dirPath/$stamp.gpx').writeAsString(buf.toString());
@@ -550,6 +599,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _baroSub?.cancel();
     _ticker?.cancel();
     _clockTicker?.cancel();
+    if (_keepScreenOn) WakelockPlus.disable().ignore();
     super.dispose();
   }
 
@@ -617,7 +667,26 @@ class _TrackerScreenState extends State<TrackerScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          'Keep screen on',
+                          style: TextStyle(color: t.statLabel, fontSize: 13),
+                        ),
+                        const SizedBox(width: 4),
+                        Switch(
+                          value: _keepScreenOn,
+                          onChanged: _setKeepScreenOn,
+                          activeThumbColor: t.toggleSelectedBackground,
+                          inactiveTrackColor: t.toggleUnselectedBackground,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
                     _StatTile(
                       icon: Icons.straighten,
                       label: 'Distance',
