@@ -39,6 +39,7 @@ dependencies:
   sensors_plus: ^7.0.0
   shared_preferences: ^2.5.5
   flutter_colorpicker: ^1.1.0
+  wakelock_plus: ^1.2.0
 
 dev_dependencies:
   flutter_test:
