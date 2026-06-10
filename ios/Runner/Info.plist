@@ -28,8 +28,6 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Err uses your location to track distance and elevation while you are active.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Err continues recording your location when the screen locks so your track is not interrupted.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
