@@ -12,6 +12,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'builtin_themes.dart';
 import 'custom_theme_editor.dart';
+import 'elevation_tracker.dart';
 import 'err_theme.dart';
 import 'theme_picker.dart';
 
@@ -148,17 +149,16 @@ class _TrackerScreenState extends State<TrackerScreen> {
   bool _messageIsError = false;
 
   double _distanceMeters = 0;
-  double _elevationGainMeters = 0;
   Duration _elapsed = Duration.zero;
 
   Position? _lastPosition;
   DateTime? _startTime;
-  List<List<Position>> _segments = [];
+  List<List<_TrackPoint>> _segments = [];
+  ElevationTracker _elevation = ElevationTracker();
+  int _teleportRejects = 0;
   SharedPreferences? _prefs;
   StreamSubscription<Position>? _positionSub;
   StreamSubscription<BarometerEvent>? _baroSub;
-  double? _lastBaroAltitude;
-  bool _baroAvailable = false;
   Timer? _ticker;
   Timer? _clockTicker;
 
@@ -217,12 +217,11 @@ class _TrackerScreenState extends State<TrackerScreen> {
     }
 
     _distanceMeters = 0;
-    _elevationGainMeters = 0;
     _elapsed = Duration.zero;
     _lastPosition = null;
     _gpsReady = false;
-    _baroAvailable = false;
-    _lastBaroAltitude = null;
+    _elevation = ElevationTracker();
+    _teleportRejects = 0;
     _segments = [[]];
     _startTime = DateTime.now();
 
@@ -258,33 +257,17 @@ class _TrackerScreenState extends State<TrackerScreen> {
     // Start barometer; errors mean the device has no sensor — fall back to GPS.
     _baroSub = Sensors().barometerEventStream(
       samplingPeriod: const Duration(seconds: 2),
-    ).listen(_onBarometer, onError: (_) {
-      _baroAvailable = false;
-    });
+    ).listen(_onBarometer, onError: (_) {});
 
     // Timer and _isTracking flip happen in _onPosition once a fresh fix arrives.
   }
 
-  double _pressureToAltitude(double hPa) =>
-      44330.0 * (1.0 - pow(hPa / 1013.25, 1.0 / 5.255));
-
   void _onBarometer(BarometerEvent event) {
-    final alt = _pressureToAltitude(event.pressure);
-    if (!_gpsReady) {
-      _lastBaroAltitude = alt;
-      _baroAvailable = true;
-      return;
-    }
-    _baroAvailable = true;
-    if (_lastBaroAltitude != null) {
-      final altDiff = alt - _lastBaroAltitude!;
-      // 3 m threshold: barometric accuracy is ~0.5 m, so 3 m is conservative
-      // yet still filters out pressure fluctuations from handling the device.
-      if (altDiff > 3.0) {
-        setState(() => _elevationGainMeters += altDiff);
-      }
-    }
-    _lastBaroAltitude = alt;
+    // No setState — the 1 s clock ticker repaints the gain soon enough.
+    _elevation.addBarometer(
+      ElevationTracker.pressureToAltitude(event.pressure),
+      DateTime.now(),
+    );
   }
 
   void _onPosition(Position pos) {
@@ -303,11 +286,12 @@ class _TrackerScreenState extends State<TrackerScreen> {
       _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
         setState(() => _elapsed = DateTime.now().difference(_startTime!));
       });
+      _elevation.addGps(pos.altitude, pos.altitudeAccuracy);
       setState(() {
         _gpsReady = true;
         _startTime = DateTime.now();
         _lastPosition = pos;
-        _segments.last.add(pos);
+        _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude));
         _isTracking = true;
         _starting = false;
         _message = null;
@@ -315,37 +299,43 @@ class _TrackerScreenState extends State<TrackerScreen> {
       return;
     }
 
-    setState(() {
-      if (_lastPosition != null) {
-        final gapSec = pos.timestamp
-            .difference(_lastPosition!.timestamp)
-            .inSeconds
-            .abs();
-        if (gapSec > 60) {
-          // GPS was lost for more than 60 s — open a new segment so the gap
-          // appears as a break in GPX viewers and is not counted as distance.
+    final last = _lastPosition;
+    if (last != null) {
+      final gapSec =
+          pos.timestamp.difference(last.timestamp).inSeconds.abs();
+      if (gapSec > 60) {
+        // GPS was lost for more than 60 s — open a new segment so the gap
+        // appears as a break in GPX viewers and is not counted as distance.
+        _segments.add([]);
+        _teleportRejects = 0;
+      } else {
+        final meters = Geolocator.distanceBetween(
+          last.latitude,
+          last.longitude,
+          pos.latitude,
+          pos.longitude,
+        );
+        // Reject teleports: a fix implying a speed far beyond what the GPS
+        // receiver itself reports is a provider glitch, not movement.
+        final speedCap = max(pos.speed > 0 ? pos.speed * 3 : 0.0, 15.0);
+        if (meters / max(gapSec, 1) > speedCap) {
+          _teleportRejects++;
+          if (_teleportRejects < 3) return;
+          // Three impossible fixes in a row means the previous anchor was
+          // the glitch — re-anchor here in a new segment, counting nothing.
           _segments.add([]);
+          _teleportRejects = 0;
         } else {
-          _distanceMeters += Geolocator.distanceBetween(
-            _lastPosition!.latitude,
-            _lastPosition!.longitude,
-            pos.latitude,
-            pos.longitude,
-          );
-          // Only use GPS altitude when the barometer is unavailable — GPS
-          // vertical noise (10–20 m) is far worse than the barometric sensor.
-          if (!_baroAvailable) {
-            final altDiff = pos.altitude - _lastPosition!.altitude;
-            final accuracyOk = pos.altitudeAccuracy <= 0 ||
-                pos.altitudeAccuracy < 15.0;
-            if (altDiff > 10.0 && accuracyOk) {
-              _elevationGainMeters += altDiff;
-            }
-          }
+          _teleportRejects = 0;
+          _distanceMeters += meters;
         }
       }
+    }
+
+    _elevation.addGps(pos.altitude, pos.altitudeAccuracy);
+    setState(() {
       _lastPosition = pos;
-      _segments.last.add(pos);
+      _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude));
     });
   }
 
@@ -382,7 +372,6 @@ class _TrackerScreenState extends State<TrackerScreen> {
       _isTracking = false;
       _starting = false;
       _gpsReady = false;
-      _baroAvailable = false;
     });
 
     if (_segments.every((s) => s.isEmpty)) {
@@ -432,11 +421,13 @@ class _TrackerScreenState extends State<TrackerScreen> {
       if (segment.isEmpty) continue;
       buf.writeln('    <trkseg>');
       for (final p in segment) {
+        final pos = p.position;
         buf
-          ..writeln('      <trkpt lat="${p.latitude}" lon="${p.longitude}">')
-          ..writeln('        <ele>${p.altitude.toStringAsFixed(2)}</ele>')
           ..writeln(
-              '        <time>${p.timestamp.toUtc().toIso8601String()}</time>')
+              '      <trkpt lat="${pos.latitude}" lon="${pos.longitude}">')
+          ..writeln('        <ele>${p.elevation.toStringAsFixed(2)}</ele>')
+          ..writeln(
+              '        <time>${pos.timestamp.toUtc().toIso8601String()}</time>')
           ..writeln('      </trkpt>');
       }
       buf.writeln('    </trkseg>');
@@ -449,7 +440,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
   Future<void> _saveCsv(String dirPath, String stamp) async {
     final distKm = (_distanceMeters / 1000).toStringAsFixed(3);
-    final elevM = _elevationGainMeters.toStringAsFixed(1);
+    final elevM = _elevation.gainMeters.toStringAsFixed(1);
     final h = _elapsed.inHours.toString().padLeft(2, '0');
     final m = (_elapsed.inMinutes % 60).toString().padLeft(2, '0');
     final s = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
@@ -474,9 +465,9 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
   String _fmtElevation() {
     if (_useImperial) {
-      return '+${(_elevationGainMeters * 3.28084).toStringAsFixed(0)} ft';
+      return '+${(_elevation.gainMeters * 3.28084).toStringAsFixed(0)} ft';
     }
-    return '+${_elevationGainMeters.toStringAsFixed(0)} m';
+    return '+${_elevation.gainMeters.toStringAsFixed(0)} m';
   }
 
   String _fmtTime() {
@@ -816,6 +807,19 @@ class _TrackerScreenState extends State<TrackerScreen> {
       ),
     );
   }
+}
+
+// ─── Track point ─────────────────────────────────────────────────────────────
+
+class _TrackPoint {
+  _TrackPoint(this.position, double? fusedAltitude)
+      : elevation = fusedAltitude ?? position.altitude;
+
+  final Position position;
+
+  /// The fused altitude at the time the point was recorded — the same value
+  /// the elevation-gain figure is computed from, so the GPX and UI agree.
+  final double elevation;
 }
 
 // ─── Info row (used in about dialog) ─────────────────────────────────────────

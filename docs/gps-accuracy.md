@@ -83,104 +83,108 @@ difficult environments.
 and the stale-position timestamp gate (#1) handles the cache concern that
 previously motivated the override.
 
-### 4. Barometric altimeter for elevation (primary source)
+### 4. Teleport rejection (distance)
 
-**Problem:** GPS altitude has 10–20 m of noise even under ideal conditions.
-With a naive 2 m minimum change, roughly half of all position updates trip the
-threshold from random noise alone — accumulating 500–1 000 m of phantom
-elevation gain on completely flat terrain over a 30-minute activity.
+**Problem:** Location providers occasionally emit a fix far from the true
+position — a cached fix, a Wi-Fi-derived position, or a multipath glitch.
+Connecting it to its neighbours adds a phantom out-and-back spike to distance.
 
-**Fix:** Err uses the device's barometric pressure sensor as the primary source
-for elevation gain. Pressure changes are converted to altitude using the
-international barometric formula:
+**Fix:** A fix whose *implied* speed (distance from the previous fix divided
+by the time gap) exceeds `max(3 × pos.speed, 15 m/s)` is rejected. The GPS
+receiver's own Doppler-derived `pos.speed` is far more reliable than
+position differences, so a large disagreement means the position jumped, not
+the user. Three consecutive rejections mean the previous *anchor* point was
+the glitch — recording re-anchors at the current fix in a new GPX segment,
+counting nothing.
 
-```
-altitude (m) = 44330 × (1 − (P / 1013.25) ^ (1 / 5.255))
-```
+### 5. Fused elevation — one altitude stream for the UI *and* the GPX
 
-The sensor is sampled every 2 seconds. Elevation gain is accumulated when the
-barometric altitude rises by more than **3 m** between samples — conservative
-enough to filter pressure fluctuations from handling the device, but responsive
-to real terrain.
+**Problem (what v0.1 got wrong):** the on-screen gain came from the barometer
+while the GPX stored raw GPS altitude — two unrelated data streams that could
+disagree wildly (1 000 ft on screen vs 21 ft from the file). The barometer
+algorithm was also a one-way ratchet: any transient pressure spike > 3 m
+(wind gust, pocket handling) was banked permanently, while real slow climbs
+below the per-sample threshold counted as zero.
 
-```dart
-double _pressureToAltitude(double hPa) =>
-    44330.0 * (1.0 - pow(hPa / 1013.25, 1.0 / 5.255));
+Raw GPS altitude in the GPX had its own failure: Android location providers
+mix two *reference frames* — MSL and the WGS84 ellipsoid, ~33 m apart in the
+eastern US. A provider switch mid-activity shows up as an instant 33 m cliff
+that is not real terrain.
 
-// In _onBarometer:
-if (altDiff > 3.0) _elevationGainMeters += altDiff;
-```
+**Fix:** all altitude data now flows through `ElevationTracker`
+(`lib/elevation_tracker.dart`), which produces a single fused altitude stream
+used for both the gain figure on screen and the `<ele>` values written to the
+GPX — the two agree by construction.
 
-The barometric sensor is present on all modern iPhones and the vast majority of
-Android devices (including all Pixel models). If the sensor is unavailable, Err
-falls back to GPS altitude with a stricter 10 m threshold (see §5).
+The tracker mirrors what Strava/Garmin do on-device:
 
-During the GPS-wait phase the barometer anchor is kept current, so the first
-elevation delta after lock is computed from a clean baseline.
+1. **Barometer for relative change, GPS for absolute anchor.** Pressure is
+   converted with the international barometric formula
+   (`44330 × (1 − (P/1013.25)^(1/5.255))`) and offset into the GPS frame by
+   the *median* of the first 5 `(gps − baro)` differences, then frozen for
+   the activity — later provider reference switches cannot bend the track.
+   Samples are throttled to 1 Hz (the platform `samplingPeriod` is only a
+   hint).
+2. **EMA smoothing** (α = 0.3) so a transient spike never reaches the gain
+   accumulator at full size.
+3. **Sustained-climb hysteresis.** While not climbing, a running local
+   minimum (the floor) follows every descent for free. A climb only starts
+   counting once the smoothed altitude rises a full threshold — **3 m**
+   (barometer) or **10 m** (GPS fallback) — above that floor. While a climb
+   is active, every new high accrues, so slow steady ascents are captured in
+   full; a threshold-sized descent ends the climb. Symmetric noise never
+   confirms a climb and never counts.
 
-### 5. GPS altitude fallback (barometer unavailable)
+### 6. GPS altitude fallback (no barometer)
 
-When `_baroAvailable` is false — meaning no barometer reading has been received
-yet — GPS altitude is used with a **10 m minimum threshold**.
+When no barometer reading arrives, the tracker feeds smoothed GPS altitude
+through the same hysteresis with the stricter 10 m threshold, plus:
 
-**Back-of-envelope showing why 2 m was wrong (flat 5 km run):**
-
-```
-600 updates × ~50% trigger rate × ~3 m average phantom gain ≈ 900 m phantom gain
-```
-
-10 m matches Garmin's default minimum and is sufficient to filter random GPS
-vertical jitter while still registering genuine terrain climbs.
-
-```dart
-if (!_baroAvailable) {
-  final altDiff = pos.altitude - _lastPosition!.altitude;
-  final accuracyOk = pos.altitudeAccuracy <= 0 || pos.altitudeAccuracy < 15.0;
-  if (altDiff > 10.0 && accuracyOk) _elevationGainMeters += altDiff;
-}
-```
-
-### 6. Altitude accuracy gate
-
-`pos.altitudeAccuracy` (iOS 15+ / Android 14+) reports the estimated vertical
-error in metres. If available and worse than 15 m, the GPS fix is excluded from
-the fallback elevation calculation. On older OS versions where this field is not
-populated, `altitudeAccuracy` is reported as ≤ 0 and the gate is skipped — the
-10 m threshold in §5 is the primary guard in that case.
+- **Altitude accuracy gate** — fixes with `pos.altitudeAccuracy` ≥ 15 m are
+  excluded (where the field is populated; ≤ 0 means unavailable and is
+  allowed through).
+- **Reference-switch guard** — a jump of more than 25 m between consecutive
+  fixes is treated as a provider reference switch, not terrain: the tracker
+  rebases to the new altitude without counting any gain.
 
 ---
 
 ## Filter pipeline summary
 
 ```
-raw barometer reading (every 2 s)
+raw barometer reading
     │
-    ├─ !_gpsReady?  → update anchor only, no gain accumulated
-    │
-    └─ altDiff > 3 m?  → add to elevation gain
-                       → mark _baroAvailable = true
+    ├─ < 1 s since last sample?  → discard (throttle)
+    ├─ no GPS calibration yet?   → record raw altitude only
+    └─ fused alt = raw + frozen median(gps − baro)
+           → EMA smooth → sustained-climb hysteresis (3 m) → gain
 
 
 raw GPS fix
     │
     ├─ pos.accuracy > 25 m?  → discard
-    │
     ├─ pos.timestamp < startTime − 5 s?  → discard (stale cache, start only)
-    │
+    ├─ implied speed > max(3 × pos.speed, 15 m/s)?  → reject
+    │      (3 in a row → re-anchor in a new segment)
+    ├─ gap > 60 s since previous fix?  → new GPX segment, no distance
     ├─ distance: Haversine to previous fix → add to distance
-    │
-    └─ elevation (only when !_baroAvailable):
-           altDiff > 10 m AND accuracyOk?  → add to elevation gain
+    └─ altitude → ElevationTracker:
+           barometer active?  → calibrate offset only
+           otherwise          → accuracy gate → 25 m jump guard
+                              → EMA smooth → hysteresis (10 m) → gain
+
+GPX <ele> = the tracker's fused altitude at each recorded point,
+so gain recomputed from the file matches the gain shown in the app.
 ```
 
 ---
 
 ## Elevation source priority
 
-| Priority | Source | Accuracy | Threshold |
+| Priority | Source | Accuracy | Climb threshold |
 |---|---|---|---|
-| 1 (preferred) | Barometric pressure sensor | ~0.5 m | 3 m gain |
-| 2 (fallback) | GPS altitude | 10–40 m | 10 m gain |
+| 1 (preferred) | Barometer (GPS-anchored, smoothed) | ~0.5 m | 3 m sustained |
+| 2 (fallback) | GPS altitude (smoothed, jump-guarded) | 10–40 m | 10 m sustained |
 
 ---
 
@@ -188,12 +192,13 @@ raw GPS fix
 
 - **Absolute barometric drift** — atmospheric pressure changes with weather
   (~1 hPa/hr in a moving storm front ≈ ~8 m/hr of apparent altitude change).
-  For activities under ~3 hours this is negligible. For all-day hikes a
-  server-side DEM correction would eliminate it.
-- **Device handling pressure** — squeezing a phone can transiently raise
-  internal pressure. The 3 m threshold filters most of these but not all.
-  A short rolling average over the barometric readings would help; left as a
-  future improvement.
-- **Speed sanity filter** — GPS teleportation events (two fixes implying an
-  impossible speed) are not yet detected. Adding a check for implied speed
-  > 50 m/s would be a small additional improvement to distance accuracy.
+  The sustained-climb filter absorbs most of it; for all-day hikes a
+  server-side DEM correction would eliminate it entirely, but that requires
+  infrastructure Err deliberately does not have.
+- **Climbs smaller than the threshold** — rolling terrain with hills under
+  3 m (barometer) or 10 m (GPS) of relief records no gain. This matches
+  Strava/Garmin behaviour, which flatten the same micro-terrain.
+- **Frozen calibration** — the baro↔GPS offset is fixed early in the
+  activity. Absolute elevations in the GPX can be off by the initial GPS
+  vertical error (~5–10 m); relative changes — and therefore gain — are
+  unaffected.
