@@ -1,0 +1,364 @@
+#+TITLE: Err Accuracy Findings — GPX Analysis & Fixes
+#+DATE: 2026-06-10
+#+AUTHOR: Claude Code
+#+PROPERTY: branch improve-accuracy
+
+* Summary
+
+Analysis of the real recorded track =2026-06-08T07-45-33.gpx= (Android /
+GrapheneOS) against the code explains all three reported symptoms:
+
+1. *UI showed ~1000 ft gain, GPX showed ~21 ft* — the UI and the GPX
+   measured two unrelated data streams, and the UI's stream had a
+   one-way-ratchet bug that banks every transient pressure spike forever.
+2. *Phantom elevation cliff at the start* — the Android location stack
+   switched providers mid-track, and the two providers report altitude in
+   different reference frames ~33 m apart.
+3. *Phantom distance jump* — same provider switch, plus an end-of-track
+   cached fix ~218 m away from the previous point.
+
+All three are fixed on branch =improve-accuracy= by routing every altitude
+sample through a new, unit-tested =ElevationTracker= whose fused output
+drives *both* the on-screen gain and the GPX =<ele>= values (so they agree
+by construction), plus a teleport-rejection gate for distance.
+
+* Evidence from the GPX
+
+** Track shape
+
+| Metric              | Value                                  |
+|---------------------+----------------------------------------|
+| Points              | 21                                     |
+| Time span           | 11:45:33Z → 12:14:26Z (~29 min)        |
+| Points 1–7          | 11:45:33–11:46:24 (~3 s cadence)       |
+| Points 8–20         | 11:47:18–11:48:33 (~6 s cadence)       |
+| Point 21            | 12:14:26 — after a *26-minute* silence |
+
+** Two altitude reference frames
+
+The points split cleanly into two populations:
+
+| Population   | Timestamps           | Elevation range | Interpretation        |
+|--------------+----------------------+-----------------+-----------------------|
+| 1–7 and 21   | millisecond fraction | 130.5 – 138.7 m | provider A, MSL frame |
+| 8–20         | whole seconds (.000) | 93.4 – 102.4 m  | provider B, WGS84 ellipsoid |
+
+The offset between the populations is 32–45 m. The geoid undulation at
+40.62°N, −75.36°W (eastern Pennsylvania) is ≈ −33 m, i.e. *exactly* the
+difference between altitude above mean sea level and height above the WGS84
+ellipsoid. This is not terrain and not noise — it is two Android location
+sources disagreeing about what "altitude" means.
+
+Observable jumps caused by the switches:
+
+| Transition    | Jump     | Real?                          |
+|---------------+----------+--------------------------------|
+| point 7 → 8   | −32.09 m | no — frame switch              |
+| point 8 → 9   | +4.00 m  | plausibly real                 |
+| point 20 → 21 | +45.26 m | no — frame switch + cached fix |
+
+** The start anomaly the user saw
+
+Point 7 → 8 also spans a 54 s gap and ~39 m of horizontal motion, and the
+elevation drops 32 m in one step. In any GPX viewer that renders as a sharp
+distance + elevation discontinuity right at the start of the activity —
+"not actually there", as reported.
+
+** The end anomaly
+
+Point 21 is ~218 m from point 20, 26 minutes later, back in the
+provider-A frame (cached or Wi-Fi-derived fix delivered when the phone was
+unlocked to press Stop). Under the current code the >60 s gap opens a new
+=<trkseg>= so it adds no distance, but its +45 m elevation step would still
+poison any naive gain calculation over the raw =<ele>= column.
+
+** The 26-minute silence (separate issue, not addressed here)
+
+Only 21 points exist for a 29-minute walk; GPS went silent from 11:48:33 to
+12:14:26. This track predates (or coincides with) the PR #19/#20 background
+GPS and permission fixes — it is worth one fresh test walk on the current
+build before assuming a remaining bug. If it recurs, that is a background
+execution problem, not an accuracy-filter problem.
+
+* Root causes in the code (before the fix)
+
+** RC1: UI gain and GPX elevations were unrelated data streams
+
+- UI gain: accumulated in =_onBarometer= from the *barometric* sensor.
+- GPX =<ele>=: raw =pos.altitude= from *GPS*.
+
+There was no mechanism by which the two numbers could agree. Any
+post-processing tool reading the GPX (which produced the realistic 21 ft)
+computed from data the UI never used.
+
+** RC2: barometer gain was a one-way ratchet on unsmoothed data
+
+#+begin_src dart
+// old code
+final altDiff = alt - _lastBaroAltitude!;
+if (altDiff > 3.0) {
+  setState(() => _elevationGainMeters += altDiff);
+}
+_lastBaroAltitude = alt;
+#+end_src
+
+Two failure modes:
+
+- *Overcount (the 1000 ft):* every transient pressure spike > 3 m — wind
+  gust, pocket handling, a door closing — is banked permanently. The
+  matching downward excursion never subtracts. Over 29 minutes at ~0.5 Hz,
+  ~100 spikes × ~3 m ≈ 300 m ≈ 1000 ft of phantom gain. One-way thresholds
+  on noisy signals *always* inflate.
+- *Undercount:* a real, slow, steady climb that never moves 3 m between
+  consecutive samples accumulates exactly *zero*. The GPS fallback (10 m
+  per-sample threshold) had the same flaw.
+
+** RC3: no defense against altitude reference-frame switches
+
+The GPS fallback compared consecutive =pos.altitude= values directly, so an
+upward MSL↔ellipsoid flip (+33 m in one step, with good claimed accuracy)
+would be counted as instant climb.
+
+** RC4: no teleport rejection for distance
+
+=docs/gps-accuracy.md= already listed this as a known gap. A cached or
+Wi-Fi fix far from the true position adds a phantom out-and-back spike.
+
+* What Strava/Garmin do (and what is reproducible offline)
+
+| Technique                              | Strava | Err now |
+|----------------------------------------+--------+---------|
+| Barometer for relative altitude        | yes    | yes     |
+| GPS anchors barometer to absolute      | yes    | yes (frozen median offset) |
+| Smoothing before gain accumulation     | yes    | yes (EMA, α = 0.3) |
+| Minimum *sustained* gain (hysteresis)  | yes    | yes (3 m baro / 10 m GPS) |
+| Server-side DEM terrain correction     | yes    | no — requires a server; out of scope for a local, privacy-first app |
+| Implied-speed glitch rejection         | yes    | yes     |
+
+* The fix
+
+All on branch =improve-accuracy= (based on =origin/main= after PR #21).
+
+** New: =lib/elevation_tracker.dart=
+
+A pure-Dart, unit-testable class. Every altitude sample (baro and GPS) goes
+through it; its fused output is the *single source of truth* for both the
+UI gain and the GPX =<ele>=.
+
+*** Fusion model
+- Barometer provides relative change (~0.5 m resolution). Pressure →
+  altitude via the international barometric formula.
+- GPS anchors it to an absolute frame *once*: the offset is the median of
+  the first 5 =(gps − baro)= differences, then *frozen* for the activity.
+  A frozen offset means later provider frame-switches cannot bend the
+  track; the worst case is a constant ~5–10 m absolute bias that does not
+  affect gain at all.
+- Baro samples are throttled to 1 Hz in code — the platform
+  =samplingPeriod= is only a hint and some devices ignore it.
+
+*** Gain algorithm (sustained-climb hysteresis)
+1. Samples are EMA-smoothed (α = 0.3) so a one-sample spike reaches the
+   accumulator at ~30 % of its size, below threshold.
+2. While *not climbing*, a running local minimum (the floor) follows every
+   descent for free.
+3. A climb is *confirmed* only when smoothed altitude rises a full
+   threshold above the floor — 3 m (baro) or 10 m (GPS) — and the rise is
+   banked.
+4. While *climbing*, every new high accrues continuously, so slow steady
+   ascents are captured in full (the naive per-sample threshold lost
+   them entirely).
+5. A threshold-sized descent ends the climb.
+
+Symmetric noise never confirms a climb → flat terrain reads ~0.
+
+*** GPS-fallback guards (no barometer)
+- Fixes with =altitudeAccuracy ≥ 15 m= excluded.
+- A jump > 25 m between consecutive fixes is treated as a reference-frame
+  switch: the tracker *rebases* to the new altitude, counting nothing.
+
+** Changed: =lib/main.dart=
+- =_segments= now stores =_TrackPoint= (position + fused elevation at
+  record time); =_saveGpx= writes the fused elevation. *UI and GPX now
+  agree by construction.*
+- Teleport rejection: a fix whose implied speed exceeds
+  =max(3 × pos.speed, 15 m/s)= is rejected (Doppler-derived =pos.speed= is
+  far more trustworthy than position deltas). Three consecutive rejections
+  mean the previous anchor was the glitch → re-anchor in a new GPX segment,
+  counting no distance. Rejected points are also excluded from the GPX, so
+  file-derived distance matches the UI too.
+- Old =_onBarometer= / =_elevationGainMeters= ratchet logic deleted.
+
+** Updated: =docs/gps-accuracy.md=
+Rewritten §4–§6, pipeline summary, and limitations to match the new
+pipeline.
+
+* Verification
+
+** Unit tests — =test/elevation_tracker_test.dart= (11, all green)
+
+| Test                                            | Proves                                         |
+|-------------------------------------------------+------------------------------------------------|
+| flat ground with GPS noise → ~no gain           | noise floor does not accumulate                |
+| slow sustained climb fully captured             | fixes the undercount (old code recorded 0)     |
+| descent then climb counts only the climb        | floor tracking is correct                      |
+| reference switch adds no gain                   | ±33 m frame flips are rebased, not counted     |
+| poor vertical accuracy ignored                  | accuracy gate works                            |
+| *replay of the real 2026-06-08 GPX* → < 10 m    | the reported track no longer inflates          |
+| fused altitude anchored to GPS frame            | calibration lands in the right frame           |
+| transient pressure spike adds no gain           | fixes the overcount (the 1000 ft)              |
+| sustained baro climb captured                   | real climbs still count                        |
+| GPS altitude ignored once barometer active      | GPS frame jumps cannot leak past the baro path |
+| sub-second baro samples throttled               | OS sampling-hint misbehaviour is contained     |
+
+** Static analysis
+=flutter analyze= — no issues.
+
+** Pre-existing failures (untouched)
+=test/widget_test.dart= has 4 failures that fail identically on a clean
+checkout of =origin/main= (stale tests referencing a location-icon button).
+Not related to this change; worth cleaning up separately.
+
+** Suggested field test
+Record one walk with the new build and check:
+1. UI gain ≈ gain computed from the GPX by an external tool (gpx.studio,
+   gpsvisualizer) — they should now be within a few metres.
+2. No elevation cliff at the start even if the provider switches.
+3. Whether GPS still drops out when the phone is locked (the separate
+   26-minute-gap issue).
+
+* Remaining limitations (accepted trade-offs)
+
+- *Barometric weather drift* — ~1 hPa/hr storm front ≈ 8 m/hr apparent
+  drift. The hysteresis absorbs most of it; full elimination needs a DEM
+  server, which conflicts with the local-only philosophy.
+- *Micro-terrain below threshold* — hills under 3 m (baro) / 10 m (GPS)
+  of relief record no gain. Strava/Garmin flatten the same terrain.
+- *Frozen calibration* — absolute GPX elevations can carry the initial GPS
+  vertical error (~5–10 m) as a constant bias; relative changes and gain
+  are unaffected.
+- *Distance accuracy gate (25 m) can starve the track* — in poor signal
+  (phone in pocket, tree cover) every fix may exceed 25 m and the track
+  pauses. Conservative and Strava-like, but if field tests show long
+  starved stretches, an adaptive gate (accept up to ~50 m after long
+  starvation) is the next candidate improvement.
+
+* Live debugging facilities (implemented — PR #23, stacked on PR #22)
+
+Field testing needs visibility into *filter decisions*, not just outputs.
+The key unanswered question from the 2026-06-08 track — during the
+26-minute silence, did the OS deliver no fixes at all, or did the 25 m
+accuracy gate reject everything? — is exactly the kind of question a debug
+facility must be able to answer.
+
+** Architecture: one diagnostics core, three consumers
+
+#+begin_example
+_onPosition / _onBarometer / ElevationTracker
+        │  (every raw sample + every filter verdict)
+        ▼
+TrackingDiagnostics (ChangeNotifier)
+  ├─ ring buffer: last ~500 events
+  ├─ counters: accept / rej-acc / rej-stale / rej-teleport / splits
+  ├─ latest raw fix, latest baro, tracker snapshot
+  │
+  ├──▶ Log tab        (live scrolling stream, filter chips, autoscroll)
+  ├──▶ REPL tab       (mini-lisp, read-only builtins over the same state)
+  └──▶ flight recorder (<stamp>-debug.csv next to the GPX)
+#+end_example
+
+Every raw fix is logged *with its verdict* (=ACCEPT=, =REJECT acc>25
+(41.3m)=, =STALE=, =TELEPORT 2/3 implied=38m/s cap=15=, =SEGMENT-SPLIT
+gap=1553s=), turning "distance looks wrong" into "47 fixes rejected by the
+accuracy gate between 11:48 and 12:14".
+
+** Activation — hidden, non-default
+
+Long-press the "Err" app-bar title toggles debug mode (persisted in
+prefs). A bug icon then appears, opening a full-screen debug route with
+two tabs: *Log* and *REPL*. Runtime toggle rather than =kDebugMode=
+gating, because field tests run sideloaded *release* builds. Keeps the
+default UI clean per the simplicity philosophy.
+
+** Log tab
+
+Live scrolling stream of the diagnostics ring buffer, newest at bottom,
+with autoscroll pause and filter chips (GPS / BARO / ELEV / verdicts).
+
+** REPL tab — a minimal lisp over read-only app state
+
+A ~300-line hand-written lisp interpreter in pure Dart (no new
+dependencies): numbers, strings, symbols, lists; =quote= =if= =define=
+=lambda= =let=; =car/cdr/cons/list/map/filter/assoc/length= plus
+arithmetic and comparison. App state is exposed as read-only builtins
+returning assoc lists, so queries compose:
+
+#+begin_src lisp
+err> (stats)
+((distance . 1243.7) (gain . 12.4) (elapsed . 754) (points . 213) (segments . 1))
+
+err> (gps)                          ; latest RAW fix, pre-filter
+((lat . 40.62277) (lon . -75.36254) (acc . 8.2) (alt . 98.4)
+ (alt-acc . 11.0) (speed . 1.38) (age . 2.1) (ms-frac . t))
+
+err> (elev)                         ; ElevationTracker internals
+((fused . 99.1) (floor . 97.8) (climbing . nil) (gain . 12.4)
+ (baro . t) (offset . 47.3) (cal-n . 5) (rebases . 0))
+
+err> (counters)
+((accept . 213) (rej-acc . 47) (rej-stale . 1) (rej-teleport . 2) (splits . 1))
+
+err> ;; how bad was accuracy over the last 50 raw fixes?
+err> (map (lambda (e) (cdr (assoc 'acc e))) (gps-history 50))
+(8.2 7.9 31.4 8.8 ...)
+
+err> (length (filter (lambda (e) (> (cdr (assoc 'acc e)) 25))
+             (gps-history 50)))
+12                                  ; ← the accuracy gate's victims, live
+#+end_src
+
+Notes:
+- =ms-frac= reports whether the fix timestamp carries a millisecond
+  fraction — the fingerprint that distinguished the two location
+  providers in the 2026-06-08 GPX. The provider switch becomes visible
+  live.
+- The log is queryable from the REPL too (=(log 20)=, =(log 20
+  'reject)=) — the tabs are views over the same data, not separate
+  systems.
+- Phone-keyboard ergonomics: a quick-insert row above the input
+  (=( ) ' lambda assoc=) plus up-arrow command history.
+- v1 is strictly read-only — every builtin is a getter. Runtime tuning
+  (e.g. =(set-gate 'accuracy 50)= for field experiments) is a natural
+  later step but introduces mutation and deserves its own decision.
+
+** Flight recorder
+
+When debug mode is on, each trip also writes =<stamp>-debug.csv= beside
+the GPX: every raw fix (pre-filter) + verdict + tracker-state snapshot,
+and throttled baro samples. Buffered appends; negligible battery. This is
+the higher-value half for field testing — the live screens only help
+while looking at the phone, and the worst observed failure (the 26-minute
+silence) happened in a pocket. Post-walk, the debug CSV lines up against
+the GPX row by row.
+
+** Components and effort
+
+| Piece                                          | File                        | ~Lines      |
+|------------------------------------------------+-----------------------------+-------------|
+| =TrackingDiagnostics= + flight-recorder CSV    | =lib/debug/diagnostics.dart= | 150         |
+| Mini-lisp interpreter                          | =lib/debug/mini_lisp.dart=  | 300 (+150 tests) |
+| Builtins binding lisp → diagnostics            | =lib/debug/repl_env.dart=   | 100 (+tests) |
+| Log + REPL screen                              | =lib/debug/debug_screen.dart= | 250         |
+| Wiring: events, long-press toggle, bug icon    | =main.dart=, =elevation_tracker.dart= | ~80 delta   |
+
+The interpreter and builtins are pure Dart and get real unit tests
+(parser, eval, builtins against a fake diagnostics object) — the same
+approach used for =ElevationTracker=.
+
+** Status
+
+- Merged to =main= on 2026-06-10 via PR #22 (which absorbed the stacked
+  debug-tools PR #23). Tagged =build-21=.
+- Implemented as designed above, plus a recursion-depth guard in the
+  interpreter (deep recursion would otherwise overflow the Dart call
+  stack before the step limit tripped). 35 unit tests total, all green.
+- Usage guide for the debug tools: [[file:debug-tools.org]].

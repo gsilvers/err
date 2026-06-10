@@ -16,6 +16,7 @@ import 'debug/debug_screen.dart';
 import 'debug/diagnostics.dart';
 import 'elevation_tracker.dart';
 import 'err_theme.dart';
+import 'help_screen.dart';
 import 'theme_picker.dart';
 
 void main() {
@@ -608,6 +609,16 @@ class _TrackerScreenState extends State<TrackerScreen> {
           ],
         ),
         actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.push<void>(
+                context,
+                MaterialPageRoute(builder: (_) => HelpScreen(theme: t)),
+              );
+            },
+            child: Text('Help', style: TextStyle(color: t.startActive)),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: Text('Close', style: TextStyle(color: t.startActive)),

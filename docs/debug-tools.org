@@ -1,0 +1,154 @@
+#+TITLE: Err Debug Tools — Usage Guide
+#+DATE: 2026-06-10
+
+* Why these exist
+
+Field testing GPS accuracy needs visibility into *filter decisions*, not
+just the final numbers. "Distance looks wrong" is not diagnosable;
+"47 fixes rejected by the accuracy gate between 11:48 and 12:14" is.
+The debug tools expose every raw sample, every verdict, and the live
+internals of the elevation tracker — on screen while you watch, and in a
+per-trip log file for everything that happens while the phone is in your
+pocket.
+
+Everything stays on the device. No network, no telemetry, read-only.
+See [[file:accuracy-findings.org]] for the analysis that motivated the
+filtering pipeline, and [[file:gps-accuracy.md]] for the pipeline itself.
+
+* Enabling debug mode
+
+1. *Long-press the "Err" title* in the app bar. A snackbar confirms.
+2. A *bug icon* appears next to the info icon — it opens the debug
+   screen (tabs: *Log* and *REPL*).
+
+Notes:
+- The setting persists across restarts (stored in preferences), and it
+  works in release builds — no developer build needed.
+- The flight recorder only records trips *started while debug mode is
+  on*. Enable it before pressing Start.
+- The log, counters, and fix history reset at each Start and persist
+  after Stop, so a finished trip can still be inspected until the next
+  one begins.
+
+* Log tab
+
+A live stream of the diagnostics ring buffer (last 500 events), newest
+first, with category filter chips (=gps= / =baro= / =elev= / =sys=).
+
+** Event reference
+
+| Event                    | Meaning                                                        |
+|--------------------------+----------------------------------------------------------------|
+| =ACCEPT acc=… alt=…=     | fix passed all gates and was recorded                          |
+| =ACCEPT anchor …=        | first fresh fix — timer starts, tracking begins                |
+| =REJECT acc>25 (… m)=    | horizontal accuracy gate (fix worse than 25 m)                 |
+| =REJECT stale=           | cached fix from before Start was pressed                       |
+| =TELEPORT n/3 implied=…= | implied speed beyond =max(3 × gps-speed, 15 m/s)=              |
+| =SEGMENT split — gap …=  | >60 s without an accepted fix → new GPX segment, no distance   |
+| =SEGMENT split — re-anchor= | 3 teleports in a row → previous anchor was the glitch       |
+| =BARO calibrated — offset …= | baro↔GPS offset frozen (median of first 5 fixes)          |
+| =REBASE — GPS altitude jumped …= | altitude reference switch absorbed, not counted        |
+| =CLIMB confirmed — banked …= | sustained rise passed the threshold, gain accruing        |
+| =CLIMB ended — total gain …= | threshold-sized descent ended the climb                   |
+| =sample … hPa → raw … m= | barometer sample (1 logged per 10; all go to the recorder)    |
+
+* REPL tab
+
+A minimal lisp console over live app state. Strictly read-only — every
+builtin is a getter; nothing in the REPL can change tracking behaviour.
+
+** App-state builtins
+
+| Command            | Returns                                                       |
+|--------------------+---------------------------------------------------------------|
+| =(stats)=          | distance, gain, elapsed, points, segments, tracking           |
+| =(gps)=            | latest *raw* fix (pre-filter): lat, lon, acc, alt, alt-acc, speed, ts, ms-frac, verdict, age |
+| =(gps-history n)=  | last =n= raw fixes, newest first (default 20, max 300 kept)   |
+| =(fix-age)=        | seconds since the last raw fix — any fix, even rejected       |
+| =(baro)=           | latest barometer sample: hPa, raw altitude, fused altitude    |
+| =(elev)=           | tracker internals: fused, floor, climbing, climb-high, gain, baro, offset, cal-n, rebases |
+| =(counters)=       | verdict totals: accept, rej-acc, rej-stale, rej-teleport, splits, baro-n |
+| =(log n ['cat])=   | last =n= log lines, optionally one category: =(log 20 'gps)=  |
+| =(help)=           | this list                                                     |
+
+=ms-frac= is worth knowing: it reports whether the fix timestamp carries
+a millisecond fraction, which fingerprints *which location provider*
+produced the fix — the two providers observed on GrapheneOS report
+altitude in reference frames ~33 m apart, and this field makes a
+provider switch visible live.
+
+** Language
+
+Numbers, strings, symbols, lists, and dotted pairs; =quote= ='x= =if=
+=define= =lambda= =let= =and= =or= =progn=; and the usual list tools:
+=car cdr cons list length nth reverse append assoc map filter= plus
+arithmetic (=+ - * / mod abs min max round=) and comparison
+(== < > <= >= equal? not=).
+
+All state builtins return assoc lists, so queries compose:
+
+#+begin_src lisp
+;; one field from the latest fix
+(cdr (assoc 'acc (gps)))
+
+;; accuracy of the last 10 raw fixes, newest first
+(map (lambda (e) (cdr (assoc 'acc e))) (gps-history 10))
+
+;; how many of the last 100 fixes would the 25 m gate reject?
+(length (filter (lambda (e) (> (cdr (assoc 'acc e)) 25))
+        (gps-history 100)))
+
+;; define helpers — they live until you leave the screen
+(define (field k e) (cdr (assoc k e)))
+(map (lambda (e) (field 'alt e)) (gps-history 5))
+#+end_src
+
+Guards: a step limit and a 500-frame recursion limit stop runaway
+expressions from hanging the UI; errors print as messages, never crash.
+Quick-insert chips above the keyboard help with parens; the arrows recall
+command history, and tapping any previous input line reloads it.
+
+* Flight recorder
+
+Trips started with debug mode on also write =<stamp>-debug.csv= beside
+the GPX (same directory: =Android/data/com.example.err/files/=). The
+stamp is renamed at Stop to match the GPX exactly.
+
+One row per event — every raw fix (including rejected ones), every
+barometer sample, every tracker event:
+
+| Column                  | Content                                       |
+|-------------------------+-----------------------------------------------|
+| =time=                  | UTC ISO-8601, written at receipt              |
+| =category=              | =gps= / =baro= / =elev= / =sys=               |
+| =message=               | the verdict or event text (quoted)            |
+| =lat lon acc alt alt_acc speed= | raw fix fields (blank for non-GPS rows) |
+| =fused floor climbing gain= | elevation tracker snapshot at that moment |
+| =distance=              | accumulated distance at that moment           |
+
+Because rejected fixes appear with their reasons, the recorder
+distinguishes the two failure modes that look identical in a GPX:
+*the OS delivered nothing* (no rows at all during a gap) vs *the filter
+rejected everything* (rows present, all =REJECT=).
+
+* Worked diagnosis: after a test walk
+
+#+begin_src lisp
+err> (counters)
+((accept . 213) (rej-acc . 47) (rej-stale . 1)
+ (rej-teleport . 2) (splits . 1) (baro-n . 754))
+#+end_src
+
+- =rej-acc= large relative to =accept= → the 25 m gate is starving the
+  track (consider whether signal was genuinely poor, or the gate needs
+  an adaptive relaxation).
+- =accept= + all =rej-*= ≈ 0 across a known gap → the OS stopped
+  delivering fixes entirely → background-execution problem, not a
+  filter problem.
+- =(cdr (assoc 'rebases (elev)))= > 0 → altitude reference switches
+  occurred and were absorbed.
+- =(cdr (assoc 'offset (elev)))= is =nil= → the barometer never got
+  calibrated (no accurate GPS altitude arrived); gain fell back to GPS.
+
+Then pull =<stamp>-debug.csv= and line it up against the GPX row by row
+for the full story.
