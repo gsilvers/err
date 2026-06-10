@@ -41,6 +41,10 @@ class ElevationTracker {
   double gainMeters = 0;
   bool baroAvailable = false;
 
+  /// Optional hook for the debug tools — receives one-line event messages
+  /// (calibration frozen, reference rebase, climb confirmed/ended).
+  void Function(String message)? onEvent;
+
   /// The fused, smoothed altitude — written to the GPX as `<ele>`.
   /// Null until the first sample (or, with a barometer, until calibrated).
   double? get currentAltitude => _smoothed;
@@ -53,6 +57,20 @@ class ElevationTracker {
   final List<double> _calibration = [];
   double? _lastGpsAlt;
   DateTime? _lastBaroTime;
+  int _rebases = 0;
+
+  /// Read-only view of internal state for the debug tools.
+  Map<String, Object?> debugSnapshot() => {
+        'fused': _smoothed,
+        'floor': _floor,
+        'climbing': _climbHigh != null,
+        'climb-high': _climbHigh,
+        'gain': gainMeters,
+        'baro': baroAvailable,
+        'offset': _baroOffset,
+        'cal-n': _calibration.length,
+        'rebases': _rebases,
+      };
 
   void addBarometer(double rawAltitude, DateTime time) {
     // samplingPeriod is only a hint to the OS — throttle to 1 Hz ourselves.
@@ -79,6 +97,9 @@ class ElevationTracker {
         if (_calibration.length >= _calibrationSamples) {
           final sorted = [..._calibration]..sort();
           _baroOffset = sorted[sorted.length ~/ 2];
+          onEvent?.call('BARO calibrated — offset '
+              '${_baroOffset!.toStringAsFixed(1)} m '
+              '(median of $_calibrationSamples fixes)');
         }
       }
       return;
@@ -89,6 +110,10 @@ class ElevationTracker {
     if (_lastGpsAlt != null &&
         (altitude - _lastGpsAlt!).abs() > _gpsJumpThreshold) {
       // Reference switch — rebase without counting it as climb or descent.
+      _rebases++;
+      onEvent?.call('REBASE — GPS altitude jumped '
+          '${(altitude - _lastGpsAlt!).toStringAsFixed(1)} m '
+          '(reference switch, not counted)');
       _lastGpsAlt = altitude;
       _smoothed = altitude;
       _floor = altitude;
@@ -113,6 +138,8 @@ class ElevationTracker {
       } else if (alt - _floor! >= threshold) {
         gainMeters += alt - _floor!;
         _climbHigh = alt;
+        onEvent?.call('CLIMB confirmed — banked '
+            '${(alt - _floor!).toStringAsFixed(1)} m');
       }
     } else if (alt > _climbHigh!) {
       // Climbing: every new high counts, so slow ascents accrue in full.
@@ -122,6 +149,8 @@ class ElevationTracker {
       // A full threshold of descent ends the climb.
       _climbHigh = null;
       _floor = alt;
+      onEvent?.call('CLIMB ended — total gain now '
+          '${gainMeters.toStringAsFixed(1)} m');
     }
   }
 }
