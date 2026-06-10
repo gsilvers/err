@@ -352,6 +352,25 @@ class _TrackerScreenState extends State<TrackerScreen> {
   Future<void> _stop() async {
     await _positionSub?.cancel();
     _positionSub = null;
+
+    // iOS: geolocator's stopListening() calls stopUpdatingLocation() but never
+    // resets allowsBackgroundLocationUpdates or showsBackgroundLocationIndicator
+    // on the shared CLLocationManager singleton. Those flags persist, so if the
+    // app is backgrounded during the cleanup window, iOS still shows the blue
+    // indicator. Resetting them requires going through startUpdatingLocation —
+    // the only code path that writes those properties — so we open a brief
+    // stream with both flags false and immediately cancel it.
+    if (Platform.isIOS) {
+      final reset = Geolocator.getPositionStream(
+        locationSettings: AppleSettings(
+          accuracy: LocationAccuracy.lowest,
+          allowBackgroundLocationUpdates: false,
+          showBackgroundLocationIndicator: false,
+        ),
+      ).listen((_) {}, onError: (_) {});
+      await reset.cancel();
+    }
+
     await _baroSub?.cancel();
     _baroSub = null;
     _ticker?.cancel();
