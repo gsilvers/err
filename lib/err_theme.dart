@@ -12,6 +12,9 @@ class ErrTheme {
     required this.statIcon,
     required this.statLabel,
     required this.statValue,
+    required this.statDistance,
+    required this.statElevation,
+    required this.statTime,
     required this.startActive,
     required this.startDisabled,
     required this.startForeground,
@@ -38,6 +41,14 @@ class ErrTheme {
   final Color statIcon;
   final Color statLabel;
   final Color statValue;
+
+  /// Per-stat heading colors so Distance / Elevation Gained / Time stand
+  /// out from each other. Built-in themes source these from the upstream
+  /// ef-theme's syntax-highlighting palette (keyword / string / fnname).
+  final Color statDistance;
+  final Color statElevation;
+  final Color statTime;
+
   final Color startActive;
   final Color startDisabled;
   final Color startForeground;
@@ -62,6 +73,9 @@ class ErrTheme {
         'statIcon': statIcon.toARGB32(),
         'statLabel': statLabel.toARGB32(),
         'statValue': statValue.toARGB32(),
+        'statDistance': statDistance.toARGB32(),
+        'statElevation': statElevation.toARGB32(),
+        'statTime': statTime.toARGB32(),
         'startActive': startActive.toARGB32(),
         'startDisabled': startDisabled.toARGB32(),
         'startForeground': startForeground.toARGB32(),
@@ -88,6 +102,11 @@ class ErrTheme {
         statIcon: Color(j['statIcon'] as int),
         statLabel: Color(j['statLabel'] as int),
         statValue: Color(j['statValue'] as int),
+        statDistance:
+            Color((j['statDistance'] ?? j['statLabel']) as int),
+        statElevation:
+            Color((j['statElevation'] ?? j['statLabel']) as int),
+        statTime: Color((j['statTime'] ?? j['statLabel']) as int),
         startActive: Color(j['startActive'] as int),
         startDisabled: Color(j['startDisabled'] as int),
         startForeground: Color(j['startForeground'] as int),
@@ -115,6 +134,9 @@ class ErrTheme {
     Color? statIcon,
     Color? statLabel,
     Color? statValue,
+    Color? statDistance,
+    Color? statElevation,
+    Color? statTime,
     Color? startActive,
     Color? startDisabled,
     Color? startForeground,
@@ -140,6 +162,9 @@ class ErrTheme {
         statIcon: statIcon ?? this.statIcon,
         statLabel: statLabel ?? this.statLabel,
         statValue: statValue ?? this.statValue,
+        statDistance: statDistance ?? this.statDistance,
+        statElevation: statElevation ?? this.statElevation,
+        statTime: statTime ?? this.statTime,
         startActive: startActive ?? this.startActive,
         startDisabled: startDisabled ?? this.startDisabled,
         startForeground: startForeground ?? this.startForeground,
@@ -166,6 +191,9 @@ const List<(String key, String label)> errThemeSlots = [
   ('statIcon', 'Stat Icon'),
   ('statLabel', 'Stat Label'),
   ('statValue', 'Stat Value'),
+  ('statDistance', 'Distance Heading'),
+  ('statElevation', 'Elevation Heading'),
+  ('statTime', 'Time Heading'),
   ('startActive', 'Start Button'),
   ('startDisabled', 'Start Button (Disabled)'),
   ('startForeground', 'Start Button Text'),
@@ -196,6 +224,12 @@ Color errThemeGetSlot(ErrTheme t, String key) {
       return t.statLabel;
     case 'statValue':
       return t.statValue;
+    case 'statDistance':
+      return t.statDistance;
+    case 'statElevation':
+      return t.statElevation;
+    case 'statTime':
+      return t.statTime;
     case 'startActive':
       return t.startActive;
     case 'startDisabled':
@@ -242,6 +276,12 @@ ErrTheme errThemeSetSlot(ErrTheme t, String key, Color color) {
       return t.copyWith(statLabel: color);
     case 'statValue':
       return t.copyWith(statValue: color);
+    case 'statDistance':
+      return t.copyWith(statDistance: color);
+    case 'statElevation':
+      return t.copyWith(statElevation: color);
+    case 'statTime':
+      return t.copyWith(statTime: color);
     case 'startActive':
       return t.copyWith(startActive: color);
     case 'startDisabled':
