@@ -1,0 +1,195 @@
+#+TITLE: Err Walk Review — 2026-06-10 17:37 Track
+#+DATE: 2026-06-10
+#+AUTHOR: Claude Code
+#+PROPERTY: files 2026-06-10T17-37-10.gpx, 2026-06-10T17-37-10-debug.csv
+
+* Summary
+
+A ~21-minute, 570 m walk recorded with the post =improve-accuracy= build.
+The good news: the fused stream drives both UI and GPX, teleport rejection
+worked (5 bad fixes cleanly dropped, no track spikes), and the real ~13 m
+climb at the end is captured well. The bad news, in rough priority order:
+
+1. *The start-of-track elevation cliff is back* — first GPX point is
+   135.93 m, second is 84.43 m (−51.5 m in 4 s). The fix routed =<ele>=
+   through the fused stream, but baro calibration needs 5 fixes, so the
+   first ~5 points fall back to raw GPS altitude — and those raw points
+   straddle the two provider reference frames.
+2. *Baro was calibrated against the wrong reference frame.* The
+   −41.7 m offset was computed from the quantized provider's altitudes
+   (84–87 m), which are ~37–42 m below both the anchor fix (135.9 m) and
+   the late-walk raw-GNSS fixes (130–140 m). Absolute =<ele>= in the GPX
+   is therefore ~40 m low for most of the track. Relative shape is fine.
+3. *~10 m of phantom gain banked on flat ground.* Reported total gain is
+   22.7 m; the barometer says the walk was flat (127 ± 1 m raw) until a
+   real ~13 m climb in the last 4 minutes. (Correction from code review:
+   GPS cannot tug the fused stream — =addGps= is ignored once the baro is
+   active. The phantom gain comes from baro noise/drift crossing the 3 m
+   threshold off a noise-ratcheted floor, amplified by the climb-end
+   churn in item 4.)
+4. *Climb end/restart churn double-counts.* =CLIMB ended= at 21:54:50
+   (floor reset to 85.18) followed by =CLIMB confirmed — banked 3.1 m=
+   just 2.5 s later. A GPS-noise dip ended a real climb prematurely,
+   reset the floor ~4 m low, and the re-confirmation re-banked altitude
+   already counted.
+
+* Walk overview
+
+| Metric            | Value                                         |
+|-------------------+-----------------------------------------------|
+| Time span         | 21:37:10Z → 21:58:19Z (~21 min)               |
+| Track points      | 82 in 3 segments (3 / 25 / 54)                |
+| Segment splits    | 78 s gap (21:38–21:39), 429 s gap (21:43–21:50) |
+| Distance          | 570.6 m                                       |
+| Reported gain     | 22.7 m                                        |
+| Baro-implied gain | ~13 m (all in the final 4 min)                |
+| GPS fixes         | 84 accepted (incl. anchor), 5 rejected        |
+| Baro samples      | 984 (~1.3 s cadence, 996.5–998.2 hPa)         |
+
+* The two GPS regimes (provider switch at 21:55:46)
+
+The accepted fixes split into two populations with distinct fingerprints,
+same as the 2026-06-08 track analyzed in =accuracy-findings.org=:
+
+| Fingerprint     | Regime A (21:37:15 – 21:55:03)    | Regime B (anchor + 21:55:46 →) |
+|-----------------+-----------------------------------+--------------------------------|
+| Altitude        | 84.4 – 96.4 m, exact 1.0 m steps  | 130.7 – 140.6 m, continuous    |
+| Horiz. accuracy | quantized (multiples of ~0.51 m)  | continuous                     |
+| Vert. accuracy  | 1.0 – 3.0 m (implausibly tight)   | 3.6 – 15 m                     |
+| Timestamps      | whole seconds                     | fractional seconds             |
+| Speed           | plausible walking values          | always 0                       |
+
+Regime offset: at 21:55:03 regime A read 93.4 m; 43 s later regime B read
+130.7 m while the baro moved +0.3 m → *offset ≈ 37 m*. Geoid undulation
+here (Bethlehem PA) is ≈ −34 m, consistent with the prior conclusion that
+one provider reports ellipsoidal height and the other MSL. Regime B
+agrees with the baro's standard-atmosphere altitude (127–140 m) and is
+almost certainly the truthful frame; regime A is the outlier — yet
+regime A is what the baro calibration locked onto.
+
+The anchor fix (21:37:10, alt 135.9, alt_acc 8.6) belongs to regime B.
+Its honest-but-wide alt_acc presumably excluded it (or it was swamped) in
+the median-of-5 calibration at 21:39:33.
+
+* Timeline
+
+| Time (Z) | Event                                                            |
+|----------+------------------------------------------------------------------|
+| 21:37:10 | Anchor accepted, acc 14.0 m, alt 135.9 m (regime B)              |
+| 21:37:15 | Regime A fixes begin, alt 84.4 m → 51.5 m cliff in GPX           |
+| 21:39:27 | Segment split (78 s GPS gap)                                     |
+| 21:39:33 | BARO calibrated, offset −41.7 m — against regime A altitudes     |
+| 21:40:14 | CLIMB confirmed (banked 3.1 m) — baro flat, phantom              |
+| 21:42:15 | CLIMB ended, gain 3.7 m                                          |
+| 21:43:15 | Last fix before 7-min pause                                      |
+| 21:50:24 | Segment split (429 s gap); fixes resume                          |
+| 21:50:55 | CLIMB confirmed (banked 3.1 m) — baro ~flat, mostly phantom      |
+| 21:54:50 | CLIMB ended, gain 9.1 m — premature, GPS dip ended a real climb  |
+| 21:54:53 | CLIMB re-confirmed 2.5 s later, +3.1 m re-banked                 |
+| 21:54–58 | Real climb: baro raw 127 → 140 m (~13 m, steepest 21:56:45–58)   |
+| 21:55:46 | Provider switch → regime B (alt jumps 93.4 → 130.7)              |
+| 21:56:46 | 5 fixes rejected (acc 32–44 m); fused correctly rides baro       |
+| 21:58:19 | Last fix; final gain 22.7 m                                      |
+
+* Findings in detail
+
+** F1 — Start-of-track cliff regression (135.93 → 84.43 m)
+
+GPX points 1–5 (=<ele>= 135.93, 84.43, 84.43, 85.43, 86.43) are raw GPS
+altitudes because fused output doesn't exist until =BARO calibrated= at
+21:39:33 (needs 5 fixes). Point 1 is the regime-B anchor; points 2–5 are
+regime A. The cross-frame cliff that =improve-accuracy= fixed for the
+track body survives in the pre-calibration window.
+
+Possible fixes: buffer the first segment's points and backfill =<ele>=
+once calibration completes; or withhold =<ele>= until fused exists; or
+seed calibration from the anchor fix immediately and refine.
+
+** F2 — Calibration locked onto the biased provider
+
+=BARO calibrated — offset −41.7 m (median of 5 fixes)= → raw 127.5 m
+mapped to ~85.8 m. The five fixes were all regime A (median 85.4 m),
+whose tight alt_acc (1–3 m) is unearned: the same provider drifted +5 m
+over 40 s on flat ground and sits ~37 m off the other frame. Every fused
+altitude and GPX =<ele>= for the rest of the walk inherits the −40 m
+bias. When regime B arrived at 21:55:46 reporting 130.7 m against fused
+90.1 m, nothing re-examined the offset.
+
+Possible fixes: detect a step discontinuity between GPS altitude and
+fused (e.g. sustained >20 m residual) and re-calibrate; weight
+calibration by something other than the provider's self-reported
+alt_acc; prefer fixes whose fingerprint (fractional timestamps,
+continuous accuracy) marks them as raw GNSS.
+
+** F3 — Phantom gain on flat ground (~10 of 22.7 m)
+
+Baro raw was 127 ± 1 m from 21:37 to ~21:53 — flat. Yet banked gain
+reached 9.1 m by 21:54:50 (climbs confirmed at 21:40:14 and 21:50:55).
+
+/Correction (found while implementing the fixes):/ the original draft
+blamed GPS-altitude wiggle tugging the fused stream, but =addGps= is
+already ignored once the barometer is active — fused shape is pure baro.
+The actual mechanism: the smoothed baro wobbles ±1.5 m around a slowly
+drifting baseline while the floor ratchets down to every local minimum,
+so the 3.0 m confirm threshold gets crossed occasionally on flat ground
+— and each confirmation banks the full floor-to-peak excursion. The
+climb-end churn (F4) then compounds it by resetting the floor into noise
+dips. Mitigation implemented: confirmations and ends must now hold for
+several consecutive samples (transient excursions never bank); slow
+genuine climbs still accrue in full at confirmation. Residual risk:
+sustained multi-minute pressure drift within the threshold band can
+still bank small phantom climbs — acceptable trade-off vs missing real
+one-storey climbs.
+
+** F4 — Climb end/re-confirm churn double-counts
+
+At 21:54:39–21:54:51 fused dipped 89.07 → 86.98 → 85.18 (GPS accepts
+pulling down) while baro raw was *rising* (129 m, real climb starting).
+The dip triggered =CLIMB ended= (floor reset to 85.18); 2.5 s later
+=CLIMB confirmed= re-banked 3.1 m from the artificially lowered floor.
+3 m of vertical in 2.5 s is not a walking human. Add a time/altitude
+hysteresis on climb end, or set the ended-climb floor to a recent median
+rather than the instantaneous fused value.
+
+** F5 — Minor observations
+
+- Regime B reports =speed=0= on every fix — anything displaying pace
+  from provider speed will read zero for that leg.
+- GPS dropouts while moving: 78 s at start, 27 s and 48 s mid-segment-2.
+- The 5 rejected fixes (acc 32–44 m) coincide with the steepest real
+  climb (21:56:46–21:57:02) — plausibly a stairwell/structure. Rejection
+  behaved correctly; fused rode the baro through the gap (90.8 → 97.2 vs
+  baro 132.5 → 139.3, deltas agree to 0.4 m).
+- Debug CSV does not record the provider name/source per fix — the
+  regime split must be inferred from quantization fingerprints. Logging
+  the provider would make this analysis trivial next time.
+
+* What worked
+
+- UI gain and GPX =<ele>= agree by construction (single fused stream).
+- Teleport/accuracy gate: no track spikes from the 5 bad fixes; distance
+  frozen during the reject window.
+- Segment splitting on 78 s and 429 s gaps.
+- The real end-of-walk climb is captured: fused 86 → 98.7 m ≈ baro's
+  ~13 m, with correct shape through a GPS blackout.
+
+* Fixes implemented (branch =fix-walk-accuracy=)
+
+1. [X] F1 — pre-calibration =<ele>= backfill: track points record the raw
+   baro altitude at capture; when the offset freezes, =onCalibrated=
+   rewrites the pre-calibration points into the fused frame. Kills the
+   51.5 m start cliff.
+2. [X] F2 — sustained-residual rebase: after calibration, 5 consecutive
+   quality fixes with a same-sign gps−fused residual > 20 m shift the
+   offset by the median residual; all tracker state and every recorded
+   elevation shift by the same delta (gain-neutral, cliff-free). On
+   today's data this re-anchors the track ~+40 m into the frame the baro
+   and raw GNSS agree on.
+3. [X] F3/F4 — climb confirm *and* end must hold for 8 consecutive
+   samples: transient spikes never bank, noise dips never end a climb
+   (so no floor reset into the dip and no re-banking on rebound). Slow
+   real climbs still accrue in full.
+4. [X] F5 — debug CSV gains an =ms_frac= column (timestamp millisecond
+   fingerprint) so the two providers can be told apart directly.
+5. [ ] Baro is already authoritative for fused shape (original F3
+   mechanism was wrong — see correction above); no change needed.

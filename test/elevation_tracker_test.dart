@@ -140,5 +140,94 @@ void main() {
       tracker.addBarometer(60, t.add(const Duration(milliseconds: 100)));
       expect(tracker.currentAltitude, closeTo(100, 1));
     });
+
+    test('noise dip and rebound does not double-bank gain', () {
+      // 2026-06-10 walk: a ~4 m fused dip ended a climb (resetting the
+      // floor to the dip bottom) and the rebound 2.5 s later re-banked
+      // 3.1 m of altitude already counted.
+      final tracker = calibrated();
+      var t = DateTime(2026, 1, 1, 0, 1);
+      void baro(double alt) {
+        tracker.addBarometer(alt, t);
+        t = t.add(const Duration(seconds: 2));
+      }
+
+      for (var i = 0; i <= 30; i++) {
+        baro(50 + i * 0.2); // sustained 6 m climb
+      }
+      final banked = tracker.gainMeters;
+      expect(banked, greaterThan(4));
+      for (var i = 0; i < 6; i++) {
+        baro(52); // brief 4 m dip…
+      }
+      for (var i = 0; i < 20; i++) {
+        baro(56); // …that rebounds to the climb high
+      }
+      expect(tracker.gainMeters, closeTo(banked, 1.0));
+    });
+
+    test('sustained post-calibration residual rebases without gain', () {
+      final tracker = calibrated(); // baro 50 ↔ gps 100
+      var rebase = 0.0;
+      tracker.onRebase = (d) => rebase = d;
+      tracker.addBarometer(50, DateTime(2026, 1, 1, 0, 1));
+      // Provider switch: good fixes arrive ~37 m above the fused frame.
+      for (var i = 0; i < 5; i++) {
+        tracker.addGps(137, 4.0);
+      }
+      expect(rebase, closeTo(37, 1));
+      tracker.addBarometer(50, DateTime(2026, 1, 1, 0, 2));
+      expect(tracker.currentAltitude, closeTo(137, 1));
+      expect(tracker.gainMeters, equals(0));
+    });
+
+    test('outliers and flapping residuals do not rebase', () {
+      final tracker = calibrated();
+      var rebased = false;
+      tracker.onRebase = (_) => rebased = true;
+      tracker.addBarometer(50, DateTime(2026, 1, 1, 0, 1));
+      for (var i = 0; i < 4; i++) {
+        tracker.addGps(137, 4.0); // four high — one short of the window
+      }
+      tracker.addGps(100, 4.0); // back in frame: clears the window
+      tracker.addGps(63, 4.0); // opposite sign: clears again
+      tracker.addGps(137, 40.0); // poor vertical accuracy: ignored
+      expect(rebased, isFalse);
+      expect(tracker.currentAltitude, closeTo(100, 1));
+    });
+
+    test('replays the 2026-06-10 walk: rebases once, sane gain', () {
+      // Calibration locked onto a provider ~42 m below the frame the
+      // barometer and the late-walk raw-GNSS fixes agreed on; the real
+      // walk was flat for 17 min, then climbed ~13 m.
+      final tracker = ElevationTracker();
+      var rebase = 0.0;
+      tracker.onRebase = (d) => rebase = d;
+      final rng = Random(7);
+      var t = DateTime(2026, 1, 1);
+      void baro(double alt) {
+        tracker.addBarometer(alt, t);
+        t = t.add(const Duration(seconds: 2));
+      }
+
+      baro(127.5);
+      for (var i = 0; i < 5; i++) {
+        baro(127.5);
+        tracker.addGps(85.4, 2.0); // wrong-frame provider calibrates
+      }
+      for (var i = 0; i < 500; i++) {
+        baro(127.5 + (rng.nextDouble() - 0.5) * 2); // flat, ±1 m wobble
+        if (i % 4 == 0) tracker.addGps(85.4 + (rng.nextDouble() - 0.5) * 4, 2.0);
+      }
+      expect(tracker.gainMeters, lessThan(2.0));
+      for (var i = 0; i <= 100; i++) {
+        final raw = 127.5 + i * 0.13; // real 13 m climb…
+        baro(raw);
+        if (i % 4 == 0) tracker.addGps(raw + 0.2, 5.0); // …as raw GNSS takes over
+      }
+      expect(rebase, closeTo(42, 3));
+      expect(tracker.gainMeters, closeTo(13, 3));
+      expect(tracker.currentAltitude, closeTo(140.7, 2));
+    });
   });
 }

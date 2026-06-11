@@ -248,6 +248,29 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _gpsReady = false;
     _elevation = ElevationTracker();
     _elevation.onEvent = (msg) => _diag.event('elev', msg);
+    // Until the baro offset freezes, points carry raw GPS elevations that
+    // can sit in a different reference frame than the fused stream (the
+    // 51 m cliff at the start of the 2026-06-10 walk's GPX). Backfill them
+    // into the fused frame the moment calibration completes.
+    _elevation.onCalibrated = (offset) {
+      for (final segment in _segments) {
+        for (final p in segment) {
+          if (!p.fused && p.rawBaro != null) {
+            p.elevation = p.rawBaro! + offset;
+          }
+        }
+      }
+    };
+    // A mid-track reference rebase (provider switch) shifts every recorded
+    // elevation by the same delta, so the whole track stays in one
+    // consistent frame instead of acquiring a cliff at the switch point.
+    _elevation.onRebase = (delta) {
+      for (final segment in _segments) {
+        for (final p in segment) {
+          p.elevation += delta;
+        }
+      }
+    };
     _teleportRejects = 0;
     _segments = [[]];
     _startTime = DateTime.now();
@@ -343,7 +366,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
         _gpsReady = true;
         _startTime = DateTime.now();
         _lastPosition = pos;
-        _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude));
+        _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude,
+            rawBaro: _elevation.lastRawBarometricAltitude));
         _isTracking = true;
         _starting = false;
         _message = null;
@@ -396,7 +420,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
         'ACCEPT acc=${pos.accuracy.toStringAsFixed(1)} m alt=${pos.altitude.toStringAsFixed(1)} m');
     setState(() {
       _lastPosition = pos;
-      _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude));
+      _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude,
+          rawBaro: _elevation.lastRawBarometricAltitude));
     });
   }
 
@@ -897,14 +922,23 @@ class _TrackerScreenState extends State<TrackerScreen> {
 // ─── Track point ─────────────────────────────────────────────────────────────
 
 class _TrackPoint {
-  _TrackPoint(this.position, double? fusedAltitude)
-      : elevation = fusedAltitude ?? position.altitude;
+  _TrackPoint(this.position, double? fusedAltitude, {this.rawBaro})
+      : fused = fusedAltitude != null,
+        elevation = fusedAltitude ?? position.altitude;
 
   final Position position;
 
+  /// Raw barometric altitude at capture time, kept so pre-calibration
+  /// points can be backfilled into the fused frame once the offset freezes.
+  final double? rawBaro;
+
+  /// Whether [elevation] came from the fused stream (vs raw GPS fallback).
+  final bool fused;
+
   /// The fused altitude at the time the point was recorded — the same value
   /// the elevation-gain figure is computed from, so the GPX and UI agree.
-  final double elevation;
+  /// Mutable: backfilled at calibration and shifted on reference rebases.
+  double elevation;
 }
 
 // ─── Info row (used in about dialog) ─────────────────────────────────────────
