@@ -179,7 +179,7 @@ class TrackingDiagnostics extends ChangeNotifier {
     _recorderPath = path;
     _recorder = File(path).openWrite();
     _recorder!.writeln(
-        'time,category,message,lat,lon,acc,alt,alt_acc,speed,fused,floor,climbing,gain,distance');
+        'time,category,message,lat,lon,acc,alt,alt_acc,speed,fused,floor,climbing,gain,distance,ms_frac');
   }
 
   /// Closes the recorder, optionally renaming the file so its stamp
@@ -225,6 +225,11 @@ class TrackingDiagnostics extends ChangeNotifier {
       f(t['climbing']),
       f(t['gain']),
       f(stats['distance']),
+      // Provider fingerprint (see fixToMap): which location source emitted
+      // this fix, inferable from the timestamp's millisecond fraction.
+      fix == null
+          ? ''
+          : f(fix.timestamp.millisecond != 0 || fix.timestamp.microsecond != 0),
     ].join(','));
     if (++_unflushed >= 20) {
       _unflushed = 0;

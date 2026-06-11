@@ -34,6 +34,21 @@ class ElevationTracker {
   /// calibration is frozen at their median.
   static const int _calibrationSamples = 5;
 
+  /// A sustained gps − fused residual this large means the location stack
+  /// switched providers into a different reference frame (MSL vs WGS84
+  /// ellipsoid) *after* calibration froze — the 2026-06-10 walk calibrated
+  /// against a provider sitting ~42 m below the frame the rest of the track
+  /// (and the barometer) agreed on.
+  static const double _rebaseThreshold = 20.0;
+
+  /// Consecutive samples a climb confirmation or climb end must hold before
+  /// it takes effect. A noise dip that ends a climb resets the floor to the
+  /// dip bottom, so the rebound re-banks altitude already counted (3.1 m
+  /// double-banked within 2.5 s on the 2026-06-10 walk); a noise spike that
+  /// confirms a climb banks the spike. Holding a few samples filters both
+  /// without losing slow real climbs, which accrue in full at confirmation.
+  static const int _holdSamples = 8;
+
   /// International barometric formula: pressure (hPa) → altitude (m).
   static double pressureToAltitude(double hPa) =>
       44330.0 * (1.0 - pow(hPa / 1013.25, 1.0 / 5.255));
@@ -45,9 +60,21 @@ class ElevationTracker {
   /// (calibration frozen, reference rebase, climb confirmed/ended).
   void Function(String message)? onEvent;
 
+  /// Fires once when the barometric offset freezes, so the recorder can
+  /// backfill the elevations of points captured before fusion existed.
+  void Function(double offset)? onCalibrated;
+
+  /// Fires when the absolute reference is rebased mid-track (provider
+  /// switch), so already-recorded elevations can be shifted by the same
+  /// delta and the track stays cliff-free in one consistent frame.
+  void Function(double delta)? onRebase;
+
   /// The fused, smoothed altitude — written to the GPX as `<ele>`.
   /// Null until the first sample (or, with a barometer, until calibrated).
   double? get currentAltitude => _smoothed;
+
+  /// Latest raw barometric altitude, for pre-calibration bookkeeping.
+  double? get lastRawBarometricAltitude => _lastRawBaro;
 
   double? _smoothed; // EMA of fused altitude
   double? _floor; // running local minimum while not climbing
@@ -55,9 +82,13 @@ class ElevationTracker {
   double? _lastRawBaro; // latest raw barometric altitude
   double? _baroOffset; // gps − baro, frozen after calibration
   final List<double> _calibration = [];
+  final List<double> _residuals = []; // post-calibration gps − fused frame
   double? _lastGpsAlt;
   DateTime? _lastBaroTime;
   int _rebases = 0;
+  int _confirmHold = 0; // samples a candidate climb has held
+  int _endHold = 0; // samples a candidate climb end has held
+  double _endLow = 0; // lowest altitude seen during the end hold
 
   /// Read-only view of internal state for the debug tools.
   Map<String, Object?> debugSnapshot() => {
@@ -90,16 +121,52 @@ class ElevationTracker {
       // The barometer drives altitude; GPS only anchors the absolute offset.
       // The looser 30 m gate is fine here — the median of several fixes
       // absorbs the noise, and the offset only shifts the whole track.
-      if (_baroOffset == null &&
-          _lastRawBaro != null &&
-          (altitudeAccuracy <= 0 || altitudeAccuracy < 30.0)) {
-        _calibration.add(altitude - _lastRawBaro!);
-        if (_calibration.length >= _calibrationSamples) {
-          final sorted = [..._calibration]..sort();
-          _baroOffset = sorted[sorted.length ~/ 2];
-          onEvent?.call('BARO calibrated — offset '
-              '${_baroOffset!.toStringAsFixed(1)} m '
-              '(median of $_calibrationSamples fixes)');
+      final usable =
+          _lastRawBaro != null && (altitudeAccuracy <= 0 || altitudeAccuracy < 30.0);
+      if (_baroOffset == null) {
+        if (usable) {
+          _calibration.add(altitude - _lastRawBaro!);
+          if (_calibration.length >= _calibrationSamples) {
+            final sorted = [..._calibration]..sort();
+            _baroOffset = sorted[sorted.length ~/ 2];
+            onEvent?.call('BARO calibrated — offset '
+                '${_baroOffset!.toStringAsFixed(1)} m '
+                '(median of $_calibrationSamples fixes)');
+            onCalibrated?.call(_baroOffset!);
+          }
+        }
+        return;
+      }
+
+      // Calibration is frozen, but keep watching the residual: a sustained
+      // jump means calibration locked onto a provider in a different
+      // reference frame and a better one has taken over. Rebase the offset
+      // by the median residual, shifting all internal state by the same
+      // delta so the rebase itself can never create gain.
+      if (usable) {
+        final residual = altitude - (_lastRawBaro! + _baroOffset!);
+        if (residual.abs() < _rebaseThreshold) {
+          _residuals.clear();
+        } else {
+          if (_residuals.isNotEmpty && residual.sign != _residuals.first.sign) {
+            _residuals.clear();
+          }
+          _residuals.add(residual);
+          if (_residuals.length >= _calibrationSamples) {
+            final sorted = [..._residuals]..sort();
+            final delta = sorted[sorted.length ~/ 2];
+            _baroOffset = _baroOffset! + delta;
+            if (_smoothed != null) _smoothed = _smoothed! + delta;
+            if (_floor != null) _floor = _floor! + delta;
+            if (_climbHigh != null) _climbHigh = _climbHigh! + delta;
+            if (_endHold > 0) _endLow += delta;
+            _rebases++;
+            _residuals.clear();
+            onEvent?.call('REBASE — offset shifted '
+                '${delta.toStringAsFixed(1)} m '
+                '(sustained GPS/baro residual, provider switch)');
+            onRebase?.call(delta);
+          }
         }
       }
       return;
@@ -118,6 +185,8 @@ class ElevationTracker {
       _smoothed = altitude;
       _floor = altitude;
       _climbHigh = null;
+      _confirmHold = 0;
+      _endHold = 0;
       return;
     }
     _lastGpsAlt = altitude;
@@ -132,25 +201,45 @@ class ElevationTracker {
 
     if (_climbHigh == null) {
       // Not climbing: the floor tracks every descent for free; a full
-      // threshold of rise above it confirms a climb and banks the rise.
+      // threshold of rise above it, held for a few samples, confirms a
+      // climb and banks the rise. The hold means a transient spike never
+      // banks; a slow real climb just confirms a few samples later and
+      // still banks its full rise.
       if (_floor == null || alt < _floor!) {
         _floor = alt;
+        _confirmHold = 0;
       } else if (alt - _floor! >= threshold) {
-        gainMeters += alt - _floor!;
-        _climbHigh = alt;
-        onEvent?.call('CLIMB confirmed — banked '
-            '${(alt - _floor!).toStringAsFixed(1)} m');
+        if (++_confirmHold >= _holdSamples) {
+          gainMeters += alt - _floor!;
+          _climbHigh = alt;
+          _confirmHold = 0;
+          onEvent?.call('CLIMB confirmed — banked '
+              '${(alt - _floor!).toStringAsFixed(1)} m');
+        }
+      } else {
+        _confirmHold = 0;
       }
     } else if (alt > _climbHigh!) {
       // Climbing: every new high counts, so slow ascents accrue in full.
       gainMeters += alt - _climbHigh!;
       _climbHigh = alt;
+      _endHold = 0;
     } else if (_climbHigh! - alt >= threshold) {
-      // A full threshold of descent ends the climb.
-      _climbHigh = null;
-      _floor = alt;
-      onEvent?.call('CLIMB ended — total gain now '
-          '${gainMeters.toStringAsFixed(1)} m');
+      // A full threshold of descent, held for a few samples, ends the
+      // climb. Without the hold a noise dip ends the climb, resets the
+      // floor to the dip bottom, and the rebound re-banks altitude that
+      // was already counted.
+      _endLow = _endHold == 0 ? alt : min(_endLow, alt);
+      if (++_endHold >= _holdSamples) {
+        _climbHigh = null;
+        _floor = _endLow;
+        _endHold = 0;
+        _confirmHold = 0;
+        onEvent?.call('CLIMB ended — total gain now '
+            '${gainMeters.toStringAsFixed(1)} m');
+      }
+    } else {
+      _endHold = 0;
     }
   }
 }
