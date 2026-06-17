@@ -545,10 +545,12 @@ class _TrackerScreenState extends State<TrackerScreen> {
   String _fmtDistance() {
     if (_useImperial) {
       final feet = _distanceMeters * 3.28084;
-      if (feet < 5280) return '${feet.toStringAsFixed(0)} ft';
+      // Switch to miles once past 0.1 mi (528 ft); show feet below that.
+      if (feet < 528) return '${feet.toStringAsFixed(0)} ft';
       return '${(feet / 5280).toStringAsFixed(2)} mi';
     }
-    if (_distanceMeters < 1000) {
+    // Switch to km once past 0.1 km (100 m); show meters below that.
+    if (_distanceMeters < 100) {
       return '${_distanceMeters.toStringAsFixed(0)} m';
     }
     return '${(_distanceMeters / 1000).toStringAsFixed(2)} km';
