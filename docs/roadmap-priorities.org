@@ -54,3 +54,7 @@ This is a big blocker. I don't want to keep paying for claude. This project will
 ***  Refactor and code cleanup
 
 Same here claude is pretty wild. I'm happy to use it to get out of the Saas trap BUT the code is hard to read. We need to extract and clarify the code so its easier for humans to parse and maintain.
+
+** Then what?
+
+I hope I can have this stuff in place by the end of July. After this the main goals are unclear. I suppose we'll set a new one of these out in August for the rest of the year. For sure the big thing past July will then be growing the user base and community (hopefully) around the app to get mroe testing, input and ideally contribution.
