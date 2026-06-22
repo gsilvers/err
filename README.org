@@ -51,3 +51,7 @@ This means:
 - If you run a modified version as a network service, you must make the source available to users of that service
 
 All contributions to this repository are made under the same license. By submitting a pull request you agree that your contribution will be licensed under the AGPL-3.0.
+
+** Feature Plans
+
+Our current plans can be found here under [[./docs/roadmap-priorities.org][here]]
