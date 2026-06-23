@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'app_drawer.dart';
+import 'appearance.dart';
+import 'appearance_screen.dart';
 import 'builtin_themes.dart';
 import 'custom_theme_editor.dart';
 import 'debug/debug_screen.dart';
@@ -83,10 +85,7 @@ class _ErrAppState extends State<ErrApp> {
 
   void _saveCustomTheme(ErrTheme t) {
     setState(() {
-      _customThemes = [
-        ..._customThemes.where((c) => c.id != t.id),
-        t,
-      ];
+      _customThemes = [..._customThemes.where((c) => c.id != t.id), t];
     });
     _prefs?.setString(
       'custom_themes',
@@ -111,8 +110,7 @@ class _ErrAppState extends State<ErrApp> {
       title: 'Err',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        brightness:
-            _theme.isDark ? Brightness.dark : Brightness.light,
+        brightness: _theme.isDark ? Brightness.dark : Brightness.light,
       ),
       home: TrackerScreen(
         theme: _theme,
@@ -179,6 +177,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
   final TrackingDiagnostics _diag = TrackingDiagnostics();
   int _teleportRejects = 0;
   SharedPreferences? _prefs;
+  AppearanceStore? _appearanceStore;
+  AppearanceSettings _appearance = const AppearanceSettings();
   StreamSubscription<Position>? _positionSub;
   StreamSubscription<BarometerEvent>? _baroSub;
   Timer? _clockTicker;
@@ -192,26 +192,35 @@ class _TrackerScreenState extends State<TrackerScreen> {
     );
     _diag.trackerSnapshot = () => _elevation.debugSnapshot();
     _diag.statsProvider = () => {
-          'distance': _distanceMeters,
-          'gain': _elevation.gainMeters,
-          'elapsed': _watch.elapsed.inSeconds,
-          'points': _segments.fold<int>(0, (n, s) => n + s.length),
-          'segments': _segments.length,
-          'tracking': _isTracking,
-        };
+      'distance': _distanceMeters,
+      'gain': _elevation.gainMeters,
+      'elapsed': _watch.elapsed.inSeconds,
+      'points': _segments.fold<int>(0, (n, s) => n + s.length),
+      'segments': _segments.length,
+      'tracking': _isTracking,
+    };
     _loadPrefs();
   }
 
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    final appearanceStore = await AppearanceStore.open();
+    final appearance = appearanceStore.load();
     if (!mounted) return;
     setState(() {
       _prefs = prefs;
+      _appearanceStore = appearanceStore;
+      _appearance = appearance;
       _keepScreenOn = prefs.getBool('keep_screen_on') ?? false;
       _debugMode = prefs.getBool('debug_mode') ?? false;
       _useImperial = prefs.getBool('use_imperial') ?? false;
       _showSpeed = prefs.getBool('show_speed') ?? true;
     });
+  }
+
+  void _setAppearance(AppearanceSettings s) {
+    setState(() => _appearance = s);
+    _appearanceStore?.save(s);
   }
 
   void _setUseImperial(bool v) {
@@ -309,9 +318,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
       // Flight recorder: every raw sample + verdict, written beside the
       // GPX. Failures here must never block tracking.
       try {
-        final dir = (Platform.isAndroid
-                ? await getExternalStorageDirectory()
-                : null) ??
+        final dir =
+            (Platform.isAndroid ? await getExternalStorageDirectory() : null) ??
             await getApplicationDocumentsDirectory();
         final stamp = _startTime!
             .toIso8601String()
@@ -321,37 +329,42 @@ class _TrackerScreenState extends State<TrackerScreen> {
       } catch (_) {}
     }
 
-    _positionSub = Geolocator.getPositionStream(
-      locationSettings: Platform.isAndroid
-          ? AndroidSettings(
-              accuracy: LocationAccuracy.high,
-              distanceFilter: 5,
-              intervalDuration: const Duration(seconds: 3),
-              foregroundNotificationConfig: const ForegroundNotificationConfig(
-                notificationText: 'Err is recording your activity',
-                notificationTitle: 'Tracking active',
-                enableWakeLock: true,
-              ),
-            )
-          : AppleSettings(
-              accuracy: LocationAccuracy.bestForNavigation,
-              distanceFilter: 5,
-              activityType: ActivityType.fitness,
-              pauseLocationUpdatesAutomatically: false,
-              allowBackgroundLocationUpdates: true,
-              showBackgroundLocationIndicator: true,
-            ),
-    ).listen(_onPosition, onError: (e) {
-      setState(() {
-        _message = 'GPS error: $e';
-        _messageIsError = true;
-      });
-    });
+    _positionSub =
+        Geolocator.getPositionStream(
+          locationSettings: Platform.isAndroid
+              ? AndroidSettings(
+                  accuracy: LocationAccuracy.high,
+                  distanceFilter: 5,
+                  intervalDuration: const Duration(seconds: 3),
+                  foregroundNotificationConfig:
+                      const ForegroundNotificationConfig(
+                        notificationText: 'Err is recording your activity',
+                        notificationTitle: 'Tracking active',
+                        enableWakeLock: true,
+                      ),
+                )
+              : AppleSettings(
+                  accuracy: LocationAccuracy.bestForNavigation,
+                  distanceFilter: 5,
+                  activityType: ActivityType.fitness,
+                  pauseLocationUpdatesAutomatically: false,
+                  allowBackgroundLocationUpdates: true,
+                  showBackgroundLocationIndicator: true,
+                ),
+        ).listen(
+          _onPosition,
+          onError: (e) {
+            setState(() {
+              _message = 'GPS error: $e';
+              _messageIsError = true;
+            });
+          },
+        );
 
     // Start barometer; errors mean the device has no sensor — fall back to GPS.
-    _baroSub = Sensors().barometerEventStream(
-      samplingPeriod: const Duration(seconds: 2),
-    ).listen(_onBarometer, onError: (_) {});
+    _baroSub = Sensors()
+        .barometerEventStream(samplingPeriod: const Duration(seconds: 2))
+        .listen(_onBarometer, onError: (_) {});
 
     // Timer and _isTracking flip happen in _onPosition once a fresh fix arrives.
   }
@@ -391,18 +404,24 @@ class _TrackerScreenState extends State<TrackerScreen> {
     // Discard low-accuracy fixes — a 40 m horizontal error connecting two
     // sloppy points inflates distance just as badly as moving.
     if (pos.accuracy > 25) {
-      _diag.gpsFix(pos, 'reject-accuracy',
-          'REJECT acc>25 (${pos.accuracy.toStringAsFixed(1)} m)');
+      _diag.gpsFix(
+        pos,
+        'reject-accuracy',
+        'REJECT acc>25 (${pos.accuracy.toStringAsFixed(1)} m)',
+      );
       return;
     }
 
     if (!_gpsReady) {
       // Discard positions acquired more than 5 s before we pressed Start —
       // those are stale cached fixes that would produce a phantom distance jump.
-      final staleThreshold =
-          _startTime!.subtract(const Duration(seconds: 5));
+      final staleThreshold = _startTime!.subtract(const Duration(seconds: 5));
       if (pos.timestamp.isBefore(staleThreshold)) {
-        _diag.gpsFix(pos, 'reject-stale', 'REJECT stale (cached pre-start fix)');
+        _diag.gpsFix(
+          pos,
+          'reject-stale',
+          'REJECT stale (cached pre-start fix)',
+        );
         return;
       }
 
@@ -412,15 +431,23 @@ class _TrackerScreenState extends State<TrackerScreen> {
         ..reset()
         ..start();
       _elevation.addGps(pos.altitude, pos.altitudeAccuracy);
-      _diag.gpsFix(pos, 'anchor',
-          'ACCEPT anchor acc=${pos.accuracy.toStringAsFixed(1)} m — tracking begins');
+      _diag.gpsFix(
+        pos,
+        'anchor',
+        'ACCEPT anchor acc=${pos.accuracy.toStringAsFixed(1)} m — tracking begins',
+      );
       setState(() {
         _gpsReady = true;
         _startTime = DateTime.now();
         _lastPosition = pos;
         _currentSpeed = pos.speed;
-        _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude,
-            rawBaro: _elevation.lastRawBarometricAltitude));
+        _segments.last.add(
+          _TrackPoint(
+            pos,
+            _elevation.currentAltitude,
+            rawBaro: _elevation.lastRawBarometricAltitude,
+          ),
+        );
         _isTracking = true;
         _starting = false;
         _message = null;
@@ -439,16 +466,20 @@ class _TrackerScreenState extends State<TrackerScreen> {
       setState(() {
         _lastPosition = pos;
         _currentSpeed = pos.speed;
-        _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude,
-            rawBaro: _elevation.lastRawBarometricAltitude));
+        _segments.last.add(
+          _TrackPoint(
+            pos,
+            _elevation.currentAltitude,
+            rawBaro: _elevation.lastRawBarometricAltitude,
+          ),
+        );
       });
       return;
     }
 
     final last = _lastPosition;
     if (last != null) {
-      final gapSec =
-          pos.timestamp.difference(last.timestamp).inSeconds.abs();
+      final gapSec = pos.timestamp.difference(last.timestamp).inSeconds.abs();
       if (gapSec > 60) {
         // GPS was lost for more than 60 s — open a new segment so the gap
         // appears as a break in GPX viewers and is not counted as distance.
@@ -469,8 +500,11 @@ class _TrackerScreenState extends State<TrackerScreen> {
         if (implied > speedCap) {
           _teleportRejects++;
           if (_teleportRejects < 3) {
-            _diag.gpsFix(pos, 'teleport',
-                'TELEPORT $_teleportRejects/3 implied=${implied.toStringAsFixed(1)} m/s cap=${speedCap.toStringAsFixed(1)}');
+            _diag.gpsFix(
+              pos,
+              'teleport',
+              'TELEPORT $_teleportRejects/3 implied=${implied.toStringAsFixed(1)} m/s cap=${speedCap.toStringAsFixed(1)}',
+            );
             return;
           }
           // Three impossible fixes in a row means the previous anchor was
@@ -486,13 +520,21 @@ class _TrackerScreenState extends State<TrackerScreen> {
     }
 
     _elevation.addGps(pos.altitude, pos.altitudeAccuracy);
-    _diag.gpsFix(pos, 'accept',
-        'ACCEPT acc=${pos.accuracy.toStringAsFixed(1)} m alt=${pos.altitude.toStringAsFixed(1)} m');
+    _diag.gpsFix(
+      pos,
+      'accept',
+      'ACCEPT acc=${pos.accuracy.toStringAsFixed(1)} m alt=${pos.altitude.toStringAsFixed(1)} m',
+    );
     setState(() {
       _lastPosition = pos;
       _currentSpeed = pos.speed;
-      _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude,
-          rawBaro: _elevation.lastRawBarometricAltitude));
+      _segments.last.add(
+        _TrackPoint(
+          pos,
+          _elevation.currentAltitude,
+          rawBaro: _elevation.lastRawBarometricAltitude,
+        ),
+      );
     });
   }
 
@@ -541,9 +583,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
     }
 
     try {
-      final dir = (Platform.isAndroid
-              ? await getExternalStorageDirectory()
-              : null) ??
+      final dir =
+          (Platform.isAndroid ? await getExternalStorageDirectory() : null) ??
           await getApplicationDocumentsDirectory();
 
       final stamp = (_startTime ?? DateTime.now())
@@ -576,7 +617,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
     final buf = StringBuffer()
       ..writeln('<?xml version="1.0" encoding="UTF-8"?>')
       ..writeln(
-          '<gpx version="1.1" creator="Err" xmlns="http://www.topografix.com/GPX/1/1">')
+        '<gpx version="1.1" creator="Err" xmlns="http://www.topografix.com/GPX/1/1">',
+      )
       ..writeln('  <trk>')
       ..writeln('    <name>Track $stamp</name>');
     for (final segment in _segments) {
@@ -586,10 +628,12 @@ class _TrackerScreenState extends State<TrackerScreen> {
         final pos = p.position;
         buf
           ..writeln(
-              '      <trkpt lat="${pos.latitude}" lon="${pos.longitude}">')
+            '      <trkpt lat="${pos.latitude}" lon="${pos.longitude}">',
+          )
           ..writeln('        <ele>${p.elevation.toStringAsFixed(2)}</ele>')
           ..writeln(
-              '        <time>${pos.timestamp.toUtc().toIso8601String()}</time>')
+            '        <time>${pos.timestamp.toUtc().toIso8601String()}</time>',
+          )
           ..writeln('      </trkpt>');
       }
       buf.writeln('    </trkseg>');
@@ -647,8 +691,18 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
   String _fmtDateTime() {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final now = DateTime.now();
     final date = '${months[now.month - 1]} ${now.day}, ${now.year}';
@@ -671,41 +725,51 @@ class _TrackerScreenState extends State<TrackerScreen> {
           children: [
             Icon(Icons.terrain, color: t.startActive, size: 22),
             const SizedBox(width: 8),
-            Text('Err', style: TextStyle(color: t.statValue, fontWeight: FontWeight.bold)),
+            Text(
+              'Err',
+              style: TextStyle(color: t.statValue, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Version 0.1.0', style: TextStyle(color: t.statLabel, fontSize: 12)),
+            Text(
+              'Version 0.1.0',
+              style: TextStyle(color: t.statLabel, fontSize: 12),
+            ),
             const SizedBox(height: 14),
             _InfoRow(
               icon: Icons.straighten,
               iconColor: t.statIcon,
               textColor: t.statValue,
-              text: 'Records distance, elevation gain, and time for any outdoor activity.',
+              text:
+                  'Records distance, elevation gain, and time for any outdoor activity.',
             ),
             const SizedBox(height: 10),
             _InfoRow(
               icon: Icons.show_chart,
               iconColor: t.statIcon,
               textColor: t.statValue,
-              text: 'Uses the barometric pressure sensor for accurate elevation, falling back to GPS when unavailable.',
+              text:
+                  'Uses the barometric pressure sensor for accurate elevation, falling back to GPS when unavailable.',
             ),
             const SizedBox(height: 10),
             _InfoRow(
               icon: Icons.palette_outlined,
               iconColor: t.statIcon,
               textColor: t.statValue,
-              text: 'Fully themeable — 38 built-in color themes ported from the ef-themes collection, plus custom theme creation. Tap the palette icon to switch.',
+              text:
+                  'Fully themeable — 38 built-in color themes ported from the ef-themes collection, plus custom theme creation. Tap the palette icon to switch.',
             ),
             const SizedBox(height: 10),
             _InfoRow(
               icon: Icons.save_alt,
               iconColor: t.statIcon,
               textColor: t.statValue,
-              text: 'Saves each trip as a GPX and CSV file to Android/data/com.example.err/files/ on your device.',
+              text:
+                  'Saves each trip as a GPX and CSV file to Android/data/com.example.err/files/ on your device.',
             ),
           ],
         ),
@@ -772,45 +836,60 @@ class _TrackerScreenState extends State<TrackerScreen> {
   // ── Navigation ───────────────────────────────────────────────────────────
 
   void _openStats() => Navigator.push<void>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => StatsScreen(
-            theme: widget.theme,
-            useImperial: _useImperial,
-          ),
-        ),
-      );
+    context,
+    MaterialPageRoute(
+      builder: (_) =>
+          StatsScreen(theme: widget.theme, useImperial: _useImperial),
+    ),
+  );
 
   void _openHelp() => Navigator.push<void>(
-        context,
-        MaterialPageRoute(builder: (_) => HelpScreen(theme: widget.theme)),
-      );
+    context,
+    MaterialPageRoute(builder: (_) => HelpScreen(theme: widget.theme)),
+  );
 
   void _openDebugTools() => Navigator.push<void>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DebugScreen(diagnostics: _diag, theme: widget.theme),
+    context,
+    MaterialPageRoute(
+      builder: (_) => DebugScreen(diagnostics: _diag, theme: widget.theme),
+    ),
+  );
+
+  void _openAppearance() {
+    final store = _appearanceStore;
+    if (store == null) return;
+    Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AppearanceScreen(
+          theme: widget.theme,
+          store: store,
+          settings: _appearance,
+          onChanged: _setAppearance,
         ),
-      );
+      ),
+    );
+  }
 
   void _openSettings() => Navigator.push<void>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => SettingsScreen(
-            theme: widget.theme,
-            useImperial: _useImperial,
-            keepScreenOn: _keepScreenOn,
-            showSpeed: _showSpeed,
-            debugMode: _debugMode,
-            onUseImperialChanged: _setUseImperial,
-            onKeepScreenOnChanged: _setKeepScreenOn,
-            onShowSpeedChanged: _setShowSpeed,
-            onDebugModeChanged: _setDebugMode,
-            onOpenTheme: _openThemePicker,
-            onOpenDebugTools: _openDebugTools,
-          ),
-        ),
-      );
+    context,
+    MaterialPageRoute(
+      builder: (_) => SettingsScreen(
+        theme: widget.theme,
+        useImperial: _useImperial,
+        keepScreenOn: _keepScreenOn,
+        showSpeed: _showSpeed,
+        debugMode: _debugMode,
+        onUseImperialChanged: _setUseImperial,
+        onKeepScreenOnChanged: _setKeepScreenOn,
+        onShowSpeedChanged: _setShowSpeed,
+        onDebugModeChanged: _setDebugMode,
+        onOpenTheme: _openThemePicker,
+        onOpenAppearance: _openAppearance,
+        onOpenDebugTools: _openDebugTools,
+      ),
+    ),
+  );
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -825,6 +904,19 @@ class _TrackerScreenState extends State<TrackerScreen> {
   }
 
   // ── Build ────────────────────────────────────────────────────────────────
+
+  /// The optional background photo, blended over the theme background at the
+  /// chosen opacity. Empty when no image is set.
+  Widget _backgroundLayer() {
+    final file = _appearanceStore?.backgroundFile(_appearance);
+    if (file == null) return const SizedBox.shrink();
+    return Positioned.fill(
+      child: Opacity(
+        opacity: _appearance.backgroundOpacity,
+        child: Image.file(file, fit: _appearance.backgroundFit),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -852,87 +944,93 @@ class _TrackerScreenState extends State<TrackerScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
+        fit: StackFit.expand,
         children: [
-          Expanded(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _StatTile(
-                      icon: Icons.straighten,
-                      label: 'Distance',
-                      value: _fmtDistance(),
-                      iconColor: t.statDistance,
-                      labelColor: t.statDistance,
-                      valueColor: t.statValue,
-                    ),
-                    if (_isTracking && _showSpeed) ...[
-                      const SizedBox(height: 28),
-                      _StatTile(
-                        icon: Icons.speed,
-                        label: 'Speed',
-                        value: _fmtSpeed(),
-                        iconColor: t.statTime,
-                        labelColor: t.statTime,
-                        valueColor: t.statValue,
-                      ),
-                    ],
-                    const SizedBox(height: 28),
-                    _StatTile(
-                      icon: Icons.trending_up,
-                      label: 'Elevation Gained',
-                      value: _fmtElevation(),
-                      iconColor: t.statElevation,
-                      labelColor: t.statElevation,
-                      valueColor: t.statValue,
-                    ),
-                    const SizedBox(height: 28),
-                    _StatTile(
-                      icon: Icons.timer_outlined,
-                      label: 'Time',
-                      value: _fmtTime(),
-                      iconColor: t.statTime,
-                      labelColor: t.statTime,
-                      valueColor: t.statValue,
-                    ),
-                    const SizedBox(height: 28),
-                    _StatTile(
-                      icon: Icons.calendar_today_outlined,
-                      label: 'Date & Time',
-                      value: _fmtDateTime(),
-                      iconColor: t.statIcon,
-                      labelColor: t.statLabel,
-                      valueColor: t.statValue,
-                    ),
-                    if (_message != null) ...[
-                      const SizedBox(height: 28),
-                      Text(
-                        _message!,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: _messageIsError
-                              ? t.messageError
-                              : t.messageInfo,
+          _backgroundLayer(),
+          Column(
+            children: [
+              Expanded(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _StatTile(
+                          icon: Icons.straighten,
+                          label: 'Distance',
+                          value: _fmtDistance(),
+                          iconColor: t.statDistance,
+                          labelColor: t.statDistance,
+                          valueColor: t.statValue,
                         ),
-                      ),
-                    ],
-                  ],
+                        if (_isTracking && _showSpeed) ...[
+                          const SizedBox(height: 28),
+                          _StatTile(
+                            icon: Icons.speed,
+                            label: 'Speed',
+                            value: _fmtSpeed(),
+                            iconColor: t.statTime,
+                            labelColor: t.statTime,
+                            valueColor: t.statValue,
+                          ),
+                        ],
+                        const SizedBox(height: 28),
+                        _StatTile(
+                          icon: Icons.trending_up,
+                          label: 'Elevation Gained',
+                          value: _fmtElevation(),
+                          iconColor: t.statElevation,
+                          labelColor: t.statElevation,
+                          valueColor: t.statValue,
+                        ),
+                        const SizedBox(height: 28),
+                        _StatTile(
+                          icon: Icons.timer_outlined,
+                          label: 'Time',
+                          value: _fmtTime(),
+                          iconColor: t.statTime,
+                          labelColor: t.statTime,
+                          valueColor: t.statValue,
+                        ),
+                        const SizedBox(height: 28),
+                        _StatTile(
+                          icon: Icons.calendar_today_outlined,
+                          label: 'Date & Time',
+                          value: _fmtDateTime(),
+                          iconColor: t.statIcon,
+                          labelColor: t.statLabel,
+                          valueColor: t.statValue,
+                        ),
+                        if (_message != null) ...[
+                          const SizedBox(height: 28),
+                          Text(
+                            _message!,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: _messageIsError
+                                  ? t.messageError
+                                  : t.messageInfo,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-          TrackingControls(
-            theme: t,
-            isTracking: _isTracking,
-            paused: _paused,
-            starting: _starting,
-            onStart: _start,
-            onPause: _pause,
-            onResume: _resume,
-            onStop: _stop,
+              TrackingControls(
+                theme: t,
+                isTracking: _isTracking,
+                paused: _paused,
+                starting: _starting,
+                onStart: _start,
+                onPause: _pause,
+                onResume: _resume,
+                onStop: _stop,
+              ),
+            ],
           ),
         ],
       ),
@@ -944,8 +1042,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
 class _TrackPoint {
   _TrackPoint(this.position, double? fusedAltitude, {this.rawBaro})
-      : fused = fusedAltitude != null,
-        elevation = fusedAltitude ?? position.altitude;
+    : fused = fusedAltitude != null,
+      elevation = fusedAltitude ?? position.altitude;
 
   final Position position;
 
@@ -985,7 +1083,10 @@ class _InfoRow extends StatelessWidget {
         Icon(icon, size: 16, color: iconColor),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(text, style: TextStyle(color: textColor, fontSize: 13, height: 1.4)),
+          child: Text(
+            text,
+            style: TextStyle(color: textColor, fontSize: 13, height: 1.4),
+          ),
         ),
       ],
     );
@@ -1023,10 +1124,9 @@ class _StatTile extends StatelessWidget {
             const SizedBox(width: 6),
             Text(
               label,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: labelColor),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: labelColor),
             ),
           ],
         ),
@@ -1035,9 +1135,9 @@ class _StatTile extends StatelessWidget {
           value,
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: valueColor,
-              ),
+            fontWeight: FontWeight.bold,
+            color: valueColor,
+          ),
         ),
       ],
     );

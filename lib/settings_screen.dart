@@ -21,6 +21,7 @@ class SettingsScreen extends StatefulWidget {
     required this.onShowSpeedChanged,
     required this.onDebugModeChanged,
     required this.onOpenTheme,
+    required this.onOpenAppearance,
     required this.onOpenDebugTools,
   });
 
@@ -34,6 +35,7 @@ class SettingsScreen extends StatefulWidget {
   final ValueChanged<bool> onShowSpeedChanged;
   final ValueChanged<bool> onDebugModeChanged;
   final VoidCallback onOpenTheme;
+  final VoidCallback onOpenAppearance;
   final VoidCallback onOpenDebugTools;
 
   @override
@@ -86,7 +88,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ? t.toggleSelectedText
                         : t.toggleUnselectedText,
                   ),
-                  side: WidgetStateProperty.all(BorderSide(color: t.toggleBorder)),
+                  side: WidgetStateProperty.all(
+                    BorderSide(color: t.toggleBorder),
+                  ),
                 ),
               ),
             ),
@@ -121,6 +125,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: 'Switch or create a colour theme',
             onTap: widget.onOpenTheme,
           ),
+          _navTile(
+            t,
+            icon: Icons.wallpaper_outlined,
+            title: 'Background image',
+            subtitle: 'Put a faint photo behind the stats',
+            onTap: widget.onOpenAppearance,
+          ),
           _header(t, 'Developer'),
           _switchTile(
             t,
@@ -147,17 +158,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _header(ErrTheme t, String text) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-        child: Text(
-          text.toUpperCase(),
-          style: TextStyle(
-            color: t.statLabel,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.8,
-          ),
-        ),
-      );
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+    child: Text(
+      text.toUpperCase(),
+      style: TextStyle(
+        color: t.statLabel,
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 0.8,
+      ),
+    ),
+  );
 
   Widget _switchTile(
     ErrTheme t, {
@@ -166,17 +177,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String subtitle,
     required bool value,
     required ValueChanged<bool> onChanged,
-  }) =>
-      SwitchListTile(
-        value: value,
-        onChanged: onChanged,
-        secondary: Icon(icon, color: t.statIcon),
-        title: Text(title, style: TextStyle(color: t.statValue)),
-        subtitle: Text(subtitle,
-            style: TextStyle(color: t.statLabel, fontSize: 12)),
-        activeThumbColor: t.toggleSelectedBackground,
-        inactiveTrackColor: t.toggleUnselectedBackground,
-      );
+  }) => SwitchListTile(
+    value: value,
+    onChanged: onChanged,
+    secondary: Icon(icon, color: t.statIcon),
+    title: Text(title, style: TextStyle(color: t.statValue)),
+    subtitle: Text(
+      subtitle,
+      style: TextStyle(color: t.statLabel, fontSize: 12),
+    ),
+    activeThumbColor: t.toggleSelectedBackground,
+    inactiveTrackColor: t.toggleUnselectedBackground,
+  );
 
   Widget _navTile(
     ErrTheme t, {
@@ -184,13 +196,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
-  }) =>
-      ListTile(
-        leading: Icon(icon, color: t.statIcon),
-        title: Text(title, style: TextStyle(color: t.statValue)),
-        subtitle: Text(subtitle,
-            style: TextStyle(color: t.statLabel, fontSize: 12)),
-        trailing: Icon(Icons.chevron_right, color: t.statLabel),
-        onTap: onTap,
-      );
+  }) => ListTile(
+    leading: Icon(icon, color: t.statIcon),
+    title: Text(title, style: TextStyle(color: t.statValue)),
+    subtitle: Text(
+      subtitle,
+      style: TextStyle(color: t.statLabel, fontSize: 12),
+    ),
+    trailing: Icon(Icons.chevron_right, color: t.statLabel),
+    onTap: onTap,
+  );
 }
