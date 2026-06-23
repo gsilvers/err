@@ -12,7 +12,7 @@ Err is already pretty useful to me today but to make all of these happen there n
 ** Err Feature Plans
 
 1. Statistics browsing — DONE ([[https://github.com/gsilvers/err/pull/31][PR #31]])
-2. Additional theme and ux tweaks — partially done: delete a save ([[https://github.com/gsilvers/err/pull/31][PR #31]])
+2. Additional theme and ux tweaks — DONE ([[https://github.com/gsilvers/err/pull/31][PR #31]], [[https://github.com/gsilvers/err/pull/33][PR #33]], [[https://github.com/gsilvers/err/pull/34][PR #34]], [[https://github.com/gsilvers/err/pull/35][PR #35]])
 3. Deterministic process for built in themes
 4. Help Screen and Config Screen navigation — DONE ([[https://github.com/gsilvers/err/pull/32][PR #32]])
 5. Documentation for developers
@@ -25,19 +25,25 @@ Delivered in [[https://github.com/gsilvers/err/pull/31][PR #31]]: a Statistics s
 
 Err is not Strava or Garmin but users like numbers. Err should let you display some metrics like total distance this month, year and perhaps year over year. Nothing crazy and we won't add things like wattage and speed. We could add instant speed to the display optionally. It's also hard to
 
-***  Additional theme and ux tweaks
+*** DONE Additional theme and ux tweaks
 
-I have a few ideas here. 
+I have a few ideas here.
 
-**** Add side panel graphics, the ability to put a small border of images top, bottom, left and right.
+**** DONE Add side panel graphics, the ability to put a small border of images top, bottom, left and right.
 
 Users could have fun here putting a tree or a light pole off to the side to make their screen look awesome.
 
-**** Add a background image.
+Delivered in [[https://github.com/gsilvers/err/pull/35][PR #35]]: an optional decorative image per screen edge (top, bottom, left, right), set from Settings → Appearance.
+
+**** DONE Add a background image.
 
 Same thing perhaps a transparant background small photo of a pet for motivation.
 
-**** Pause Button
+Delivered in [[https://github.com/gsilvers/err/pull/34][PR #34]]: pick a gallery photo to sit faintly behind the stats, with adjustable opacity and fit.
+
+**** DONE Pause Button
+
+Delivered in [[https://github.com/gsilvers/err/pull/33][PR #33]]: pause/resume during tracking — paused time is excluded and no distance or elevation accrues while paused.
 
 **** DONE Ability to delete a previous save's file
 

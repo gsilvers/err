@@ -128,8 +128,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _navTile(
             t,
             icon: Icons.wallpaper_outlined,
-            title: 'Background image',
-            subtitle: 'Put a faint photo behind the stats',
+            title: 'Appearance',
+            subtitle: 'Background photo and edge images',
             onTap: widget.onOpenAppearance,
           ),
           _header(t, 'Developer'),
