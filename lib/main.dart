@@ -16,7 +16,9 @@ import 'debug/debug_screen.dart';
 import 'debug/diagnostics.dart';
 import 'elevation_tracker.dart';
 import 'err_theme.dart';
+import 'stats_screen.dart';
 import 'theme_picker.dart';
+import 'units.dart';
 
 void main() {
   runApp(const ErrApp());
@@ -152,6 +154,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
   bool _messageIsError = false;
 
   double _distanceMeters = 0;
+  double _currentSpeed = 0; // m/s, from the latest accepted GPS fix
   Duration _elapsed = Duration.zero;
 
   Position? _lastPosition;
@@ -192,7 +195,13 @@ class _TrackerScreenState extends State<TrackerScreen> {
       _prefs = prefs;
       _keepScreenOn = prefs.getBool('keep_screen_on') ?? false;
       _debugMode = prefs.getBool('debug_mode') ?? false;
+      _useImperial = prefs.getBool('use_imperial') ?? false;
     });
+  }
+
+  void _setUseImperial(bool v) {
+    setState(() => _useImperial = v);
+    _prefs?.setBool('use_imperial', v);
   }
 
   void _toggleDebugMode() {
@@ -243,6 +252,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
     }
 
     _distanceMeters = 0;
+    _currentSpeed = 0;
     _elapsed = Duration.zero;
     _lastPosition = null;
     _gpsReady = false;
@@ -366,6 +376,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
         _gpsReady = true;
         _startTime = DateTime.now();
         _lastPosition = pos;
+        _currentSpeed = pos.speed;
         _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude,
             rawBaro: _elevation.lastRawBarometricAltitude));
         _isTracking = true;
@@ -420,6 +431,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
         'ACCEPT acc=${pos.accuracy.toStringAsFixed(1)} m alt=${pos.altitude.toStringAsFixed(1)} m');
     setState(() {
       _lastPosition = pos;
+      _currentSpeed = pos.speed;
       _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude,
           rawBaro: _elevation.lastRawBarometricAltitude));
     });
@@ -569,6 +581,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
     final s = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
     return '$h:$m:$s';
   }
+
+  String _fmtSpeed() => formatSpeed(_currentSpeed, imperial: _useImperial);
 
   String _fmtDateTime() {
     const months = [
@@ -739,6 +753,20 @@ class _TrackerScreenState extends State<TrackerScreen> {
               ),
             ),
           IconButton(
+            icon: const Icon(Icons.bar_chart),
+            color: t.appBarTitle,
+            tooltip: 'Statistics',
+            onPressed: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute(
+                builder: (_) => StatsScreen(
+                  theme: widget.theme,
+                  useImperial: _useImperial,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
             icon: const Icon(Icons.info_outline),
             color: t.appBarTitle,
             tooltip: 'About',
@@ -770,7 +798,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
                         ],
                         selected: {_useImperial},
                         onSelectionChanged: (s) =>
-                            setState(() => _useImperial = s.first),
+                            _setUseImperial(s.first),
                         showSelectedIcon: false,
                         style: ButtonStyle(
                           backgroundColor: WidgetStateProperty.resolveWith(
@@ -817,6 +845,17 @@ class _TrackerScreenState extends State<TrackerScreen> {
                       labelColor: t.statDistance,
                       valueColor: t.statValue,
                     ),
+                    if (_isTracking) ...[
+                      const SizedBox(height: 28),
+                      _StatTile(
+                        icon: Icons.speed,
+                        label: 'Speed',
+                        value: _fmtSpeed(),
+                        iconColor: t.statTime,
+                        labelColor: t.statTime,
+                        valueColor: t.statValue,
+                      ),
+                    ],
                     const SizedBox(height: 28),
                     _StatTile(
                       icon: Icons.trending_up,
