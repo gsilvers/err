@@ -21,6 +21,7 @@ import 'help_screen.dart';
 import 'settings_screen.dart';
 import 'stats_screen.dart';
 import 'theme_picker.dart';
+import 'tracking_controls.dart';
 import 'units.dart';
 
 void main() {
@@ -149,6 +150,7 @@ class TrackerScreen extends StatefulWidget {
 class _TrackerScreenState extends State<TrackerScreen> {
   bool _isTracking = false;
   bool _starting = false;
+  bool _paused = false;
   bool _gpsReady = false;
   bool _useImperial = false;
   bool _keepScreenOn = false;
@@ -159,7 +161,16 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
   double _distanceMeters = 0;
   double _currentSpeed = 0; // m/s, from the latest accepted GPS fix
-  Duration _elapsed = Duration.zero;
+
+  /// Active (unpaused) tracking time. A [Stopwatch] only advances while
+  /// running, so stopping it on pause and restarting on resume excludes
+  /// paused time for free.
+  final Stopwatch _watch = Stopwatch();
+
+  /// Set on resume so the next accepted fix re-anchors in a fresh GPX segment
+  /// instead of drawing a line across — and counting distance for — wherever
+  /// the user moved while paused.
+  bool _resumeAnchorPending = false;
 
   Position? _lastPosition;
   DateTime? _startTime;
@@ -170,7 +181,6 @@ class _TrackerScreenState extends State<TrackerScreen> {
   SharedPreferences? _prefs;
   StreamSubscription<Position>? _positionSub;
   StreamSubscription<BarometerEvent>? _baroSub;
-  Timer? _ticker;
   Timer? _clockTicker;
 
   @override
@@ -184,7 +194,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _diag.statsProvider = () => {
           'distance': _distanceMeters,
           'gain': _elevation.gainMeters,
-          'elapsed': _elapsed.inSeconds,
+          'elapsed': _watch.elapsed.inSeconds,
           'points': _segments.fold<int>(0, (n, s) => n + s.length),
           'segments': _segments.length,
           'tracking': _isTracking,
@@ -256,7 +266,11 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
     _distanceMeters = 0;
     _currentSpeed = 0;
-    _elapsed = Duration.zero;
+    _watch
+      ..stop()
+      ..reset();
+    _paused = false;
+    _resumeAnchorPending = false;
     _lastPosition = null;
     _gpsReady = false;
     _elevation = ElevationTracker();
@@ -342,7 +356,29 @@ class _TrackerScreenState extends State<TrackerScreen> {
     // Timer and _isTracking flip happen in _onPosition once a fresh fix arrives.
   }
 
+  void _pause() {
+    if (!_isTracking || _paused) return;
+    _watch.stop();
+    setState(() {
+      _paused = true;
+      _currentSpeed = 0;
+      _message = 'Paused';
+      _messageIsError = false;
+    });
+  }
+
+  void _resume() {
+    if (!_isTracking || !_paused) return;
+    _watch.start();
+    setState(() {
+      _paused = false;
+      _resumeAnchorPending = true;
+      _message = null;
+    });
+  }
+
   void _onBarometer(BarometerEvent event) {
+    if (_paused) return; // no elevation gain accrues while paused
     // No setState — the 1 s clock ticker repaints the gain soon enough.
     final rawAlt = ElevationTracker.pressureToAltitude(event.pressure);
     _elevation.addBarometer(rawAlt, DateTime.now());
@@ -350,6 +386,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
   }
 
   void _onPosition(Position pos) {
+    if (_paused) return; // ignore fixes entirely while paused
+
     // Discard low-accuracy fixes — a 40 m horizontal error connecting two
     // sloppy points inflates distance just as badly as moving.
     if (pos.accuracy > 25) {
@@ -368,10 +406,11 @@ class _TrackerScreenState extends State<TrackerScreen> {
         return;
       }
 
-      // Fresh fix — anchor here and begin active tracking.
-      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-        setState(() => _elapsed = DateTime.now().difference(_startTime!));
-      });
+      // Fresh fix — anchor here and begin active tracking. The 1 s clock
+      // ticker repaints the elapsed time read from _watch.
+      _watch
+        ..reset()
+        ..start();
       _elevation.addGps(pos.altitude, pos.altitudeAccuracy);
       _diag.gpsFix(pos, 'anchor',
           'ACCEPT anchor acc=${pos.accuracy.toStringAsFixed(1)} m — tracking begins');
@@ -385,6 +424,23 @@ class _TrackerScreenState extends State<TrackerScreen> {
         _isTracking = true;
         _starting = false;
         _message = null;
+      });
+      return;
+    }
+
+    if (_resumeAnchorPending) {
+      // First fix after a resume: re-anchor in a new segment so the paused
+      // interval is a break in the GPX, and count no distance for it.
+      _resumeAnchorPending = false;
+      _segments.add([]);
+      _teleportRejects = 0;
+      _elevation.addGps(pos.altitude, pos.altitudeAccuracy);
+      _diag.gpsFix(pos, 'resume', 'ACCEPT resume re-anchor — new segment');
+      setState(() {
+        _lastPosition = pos;
+        _currentSpeed = pos.speed;
+        _segments.last.add(_TrackPoint(pos, _elevation.currentAltitude,
+            rawBaro: _elevation.lastRawBarometricAltitude));
       });
       return;
     }
@@ -464,14 +520,14 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
     await _baroSub?.cancel();
     _baroSub = null;
-    _ticker?.cancel();
-    _ticker = null;
+    _watch.stop();
 
     if (_keepScreenOn) await WakelockPlus.disable();
 
     setState(() {
       _isTracking = false;
       _starting = false;
+      _paused = false;
       _gpsReady = false;
     });
 
@@ -545,11 +601,12 @@ class _TrackerScreenState extends State<TrackerScreen> {
   }
 
   Future<void> _saveCsv(String dirPath, String stamp) async {
+    final elapsed = _watch.elapsed;
     final distKm = (_distanceMeters / 1000).toStringAsFixed(3);
     final elevM = _elevation.gainMeters.toStringAsFixed(1);
-    final h = _elapsed.inHours.toString().padLeft(2, '0');
-    final m = (_elapsed.inMinutes % 60).toString().padLeft(2, '0');
-    final s = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
+    final h = elapsed.inHours.toString().padLeft(2, '0');
+    final m = (elapsed.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
     final csv =
         'distance_km,elevation_gain_m,total_time\n$distKm,$elevM,$h:$m:$s\n';
     await File('$dirPath/$stamp.csv').writeAsString(csv);
@@ -579,9 +636,10 @@ class _TrackerScreenState extends State<TrackerScreen> {
   }
 
   String _fmtTime() {
-    final h = _elapsed.inHours.toString().padLeft(2, '0');
-    final m = (_elapsed.inMinutes % 60).toString().padLeft(2, '0');
-    final s = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
+    final elapsed = _watch.elapsed;
+    final h = elapsed.inHours.toString().padLeft(2, '0');
+    final m = (elapsed.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
     return '$h:$m:$s';
   }
 
@@ -760,7 +818,6 @@ class _TrackerScreenState extends State<TrackerScreen> {
   void dispose() {
     _positionSub?.cancel();
     _baroSub?.cancel();
-    _ticker?.cancel();
     _clockTicker?.cancel();
     _diag.dispose();
     if (_keepScreenOn) WakelockPlus.disable().ignore();
@@ -867,59 +924,15 @@ class _TrackerScreenState extends State<TrackerScreen> {
               ),
             ),
           ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed:
-                          (_isTracking || _starting) ? null : _start,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: t.startActive,
-                        disabledBackgroundColor: t.startDisabled,
-                        foregroundColor: t.startForeground,
-                        disabledForegroundColor:
-                            t.startForeground.withAlpha(120),
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 18),
-                      ),
-                      icon: _starting
-                          ? SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: t.startForeground,
-                              ),
-                            )
-                          : const Icon(Icons.play_arrow),
-                      label: const Text('Start',
-                          style: TextStyle(fontSize: 16)),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: (_isTracking || _starting) ? _stop : null,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: t.stopActive,
-                        disabledBackgroundColor: t.stopDisabled,
-                        foregroundColor: t.stopForeground,
-                        disabledForegroundColor:
-                            t.stopForeground.withAlpha(120),
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 18),
-                      ),
-                      icon: const Icon(Icons.stop),
-                      label: const Text('Stop',
-                          style: TextStyle(fontSize: 16)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          TrackingControls(
+            theme: t,
+            isTracking: _isTracking,
+            paused: _paused,
+            starting: _starting,
+            onStart: _start,
+            onPause: _pause,
+            onResume: _resume,
+            onStop: _stop,
           ),
         ],
       ),
