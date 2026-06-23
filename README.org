@@ -39,6 +39,8 @@ Strava and Garmin are not bad guys for this but this is not Err's goal. If you a
 
 I'll expand this later but Err is open source and open to contributions. I'll work to get a roadmap published and I'm open to suggestions. For now, raise PR's or raise issues to propose features you cannot impliment. I'm an application developer but I've never developed for Android and its been about 7 years since I did so for IOS. Right now I'm just bootstrapping this thing with Claude as I learn the tools.
 
+New to the codebase? Start with [[./docs/architecture.md][docs/architecture.md]] for how the project is laid out and where things live.
+
 Err is free but if you want to contribute financially I'll get the requisite donation tools up here eventually.
 
 ** License
