@@ -918,6 +918,52 @@ class _TrackerScreenState extends State<TrackerScreen> {
     );
   }
 
+  /// Decorative images banded along any chosen edge. They sit above the
+  /// background but below the stat content, so the numbers and buttons stay
+  /// on top and readable.
+  List<Widget> _edgeLayers() {
+    final store = _appearanceStore;
+    if (store == null) return const [];
+    const band = 80.0;
+    final layers = <Widget>[];
+    for (final edge in DecorationEdge.values) {
+      final file = store.imageFile(_appearance.edgeImage(edge));
+      if (file == null) continue;
+      final img = Image.file(file, fit: BoxFit.cover);
+      layers.add(switch (edge) {
+        DecorationEdge.top => Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: band,
+          child: img,
+        ),
+        DecorationEdge.bottom => Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: band,
+          child: img,
+        ),
+        DecorationEdge.left => Positioned(
+          top: 0,
+          bottom: 0,
+          left: 0,
+          width: band,
+          child: img,
+        ),
+        DecorationEdge.right => Positioned(
+          top: 0,
+          bottom: 0,
+          right: 0,
+          width: band,
+          child: img,
+        ),
+      });
+    }
+    return layers;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = widget.theme;
@@ -948,6 +994,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
         fit: StackFit.expand,
         children: [
           _backgroundLayer(),
+          ..._edgeLayers(),
           Column(
             children: [
               Expanded(

@@ -36,6 +36,24 @@ void main() {
       expect(s.copyWith(clearBackground: true).backgroundImage, isNull);
       expect(s.copyWith(backgroundOpacity: 0.9).backgroundImage, 'bg.jpg');
     });
+
+    test('edge images set, clear, and round-trip through JSON', () {
+      const base = AppearanceSettings();
+      final withTop = base.withEdge(DecorationEdge.top, 'top.png');
+      final both = withTop.withEdge(DecorationEdge.left, 'left.png');
+
+      expect(both.edgeImage(DecorationEdge.top), 'top.png');
+      expect(both.edgeImage(DecorationEdge.left), 'left.png');
+      expect(both.edgeImage(DecorationEdge.right), isNull);
+
+      final restored = AppearanceSettings.fromJson(both.toJson());
+      expect(restored.edgeImage(DecorationEdge.top), 'top.png');
+      expect(restored.edgeImage(DecorationEdge.left), 'left.png');
+
+      final cleared = both.withoutEdge(DecorationEdge.top);
+      expect(cleared.edgeImage(DecorationEdge.top), isNull);
+      expect(cleared.edgeImage(DecorationEdge.left), 'left.png');
+    });
   });
 
   group('AppearanceStore', () {
@@ -86,16 +104,27 @@ void main() {
       expect(store.backgroundFile(const AppearanceSettings()), isNull);
       expect(
         store.backgroundFile(
-            const AppearanceSettings(backgroundImage: 'missing.jpg')),
+          const AppearanceSettings(backgroundImage: 'missing.jpg'),
+        ),
         isNull,
       );
 
       final src = File('${dir.path}/source.jpg')..writeAsBytesSync([9]);
       final name = await store.importBackground(src.path);
       final file = store.backgroundFile(
-          AppearanceSettings(backgroundImage: name));
+        AppearanceSettings(backgroundImage: name),
+      );
       expect(file, isNotNull);
       expect(file!.existsSync(), isTrue);
+    });
+
+    test('importImage carries the slot prefix into the filename', () async {
+      final src = File('${dir.path}/source.png')..writeAsBytesSync([7]);
+      final name = await store.importImage(src.path, prefix: 'edge_left');
+      expect(name, startsWith('edge_left_'));
+      expect(name, endsWith('.png'));
+      expect(store.imageFile(name), isNotNull);
+      expect(store.imageFile('nope.png'), isNull);
     });
 
     test('deleteImage removes the stored file', () async {
@@ -122,20 +151,29 @@ void main() {
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
+    // Tall surface so the lazy ListView builds the side-decoration rows too.
+    await tester.binding.setSurfaceSize(const Size(1080, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    await tester.pumpWidget(MaterialApp(
-      home: AppearanceScreen(
-        theme: builtinThemes.first,
-        store: store,
-        settings: const AppearanceSettings(),
-        onChanged: (_) {},
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppearanceScreen(
+          theme: builtinThemes.first,
+          store: store,
+          settings: const AppearanceSettings(),
+          onChanged: (_) {},
+        ),
       ),
-    ));
+    );
     await tester.pump();
 
     expect(find.text('Choose image'), findsOneWidget);
     expect(find.text('No background image'), findsOneWidget);
     // Opacity/Fit controls only appear once an image is set.
     expect(find.text('Opacity'), findsNothing);
+    // Side-decoration edge slots are present.
+    expect(find.text('SIDE DECORATIONS'), findsOneWidget);
+    expect(find.text('Top'), findsOneWidget);
+    expect(find.text('Right'), findsOneWidget);
   });
 }
