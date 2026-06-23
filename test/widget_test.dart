@@ -102,6 +102,7 @@ void main() {
         onShowSpeedChanged: (_) {},
         onDebugModeChanged: (_) {},
         onOpenTheme: () {},
+        onOpenAppearance: () {},
         onOpenDebugTools: () {},
       ),
     );
@@ -128,6 +129,7 @@ void main() {
           onShowSpeedChanged: (_) {},
           onDebugModeChanged: (_) {},
           onOpenTheme: () {},
+          onOpenAppearance: () {},
           onOpenDebugTools: () {},
         );
 
