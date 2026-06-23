@@ -11,15 +11,17 @@ Err is already pretty useful to me today but to make all of these happen there n
 
 ** Err Feature Plans
 
-1. Statistics browsing
-2. Additional theme and ux tweaks
+1. Statistics browsing — DONE ([[https://github.com/gsilvers/err/pull/31][PR #31]])
+2. Additional theme and ux tweaks — partially done: delete a save ([[https://github.com/gsilvers/err/pull/31][PR #31]])
 3. Deterministic process for built in themes
-4. Help Screen and Config Screen navigation
+4. Help Screen and Config Screen navigation — DONE ([[https://github.com/gsilvers/err/pull/32][PR #32]])
 5. Documentation for developers
 6. Refactor and code cleanup
 
 
-*** Statistics browsing
+*** DONE Statistics browsing
+
+Delivered in [[https://github.com/gsilvers/err/pull/31][PR #31]]: a Statistics screen with this-month / this-year totals, a year-over-year breakdown, and a browsable activity history. Instant speed was also added as an optional live tile on the tracker (toggle in Settings).
 
 Err is not Strava or Garmin but users like numbers. Err should let you display some metrics like total distance this month, year and perhaps year over year. Nothing crazy and we won't add things like wattage and speed. We could add instant speed to the display optionally. It's also hard to
 
@@ -37,13 +39,17 @@ Same thing perhaps a transparant background small photo of a pet for motivation.
 
 **** Pause Button
 
-**** Ability to delete a previous save's file
+**** DONE Ability to delete a previous save's file
+
+Delivered in [[https://github.com/gsilvers/err/pull/31][PR #31]]: long-press an activity in the Statistics history to delete its GPX + CSV files.
 
 ***  Deterministic process for built in themes
 
 Themes were taken by having claude go wild with Prot's [[https://github.com/protesilaos/ef-themes][EF Themes]] but not in any deterministic way. It would be great to be able to capture this transformation in a script so we can pull in upstream changes.
 
-***  Help Screen and Config Screen navigation
+*** DONE Help Screen and Config Screen navigation
+
+Delivered in [[https://github.com/gsilvers/err/pull/32][PR #32]]: a navigation drawer plus dedicated Settings and Help screens. The cluttered main-screen controls (units, keep-screen-on) moved into Settings, and the debug tools are now reachable from there instead of a hidden long-press gesture.
 
 The main screen is cluttered. There should be an easy way to get to help, config and debug.
 

@@ -10,12 +10,15 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import 'app_drawer.dart';
 import 'builtin_themes.dart';
 import 'custom_theme_editor.dart';
 import 'debug/debug_screen.dart';
 import 'debug/diagnostics.dart';
 import 'elevation_tracker.dart';
 import 'err_theme.dart';
+import 'help_screen.dart';
+import 'settings_screen.dart';
 import 'stats_screen.dart';
 import 'theme_picker.dart';
 import 'units.dart';
@@ -149,6 +152,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
   bool _gpsReady = false;
   bool _useImperial = false;
   bool _keepScreenOn = false;
+  bool _showSpeed = true;
   bool _debugMode = false;
   String? _message;
   bool _messageIsError = false;
@@ -196,6 +200,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
       _keepScreenOn = prefs.getBool('keep_screen_on') ?? false;
       _debugMode = prefs.getBool('debug_mode') ?? false;
       _useImperial = prefs.getBool('use_imperial') ?? false;
+      _showSpeed = prefs.getBool('show_speed') ?? true;
     });
   }
 
@@ -204,16 +209,14 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _prefs?.setBool('use_imperial', v);
   }
 
-  void _toggleDebugMode() {
-    setState(() => _debugMode = !_debugMode);
-    _prefs?.setBool('debug_mode', _debugMode);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_debugMode
-            ? 'Debug mode enabled — bug icon opens log + REPL'
-            : 'Debug mode disabled'),
-      ),
-    );
+  void _setShowSpeed(bool v) {
+    setState(() => _showSpeed = v);
+    _prefs?.setBool('show_speed', v);
+  }
+
+  void _setDebugMode(bool v) {
+    setState(() => _debugMode = v);
+    _prefs?.setBool('debug_mode', v);
   }
 
   void _setKeepScreenOn(bool v) {
@@ -708,6 +711,49 @@ class _TrackerScreenState extends State<TrackerScreen> {
     );
   }
 
+  // ── Navigation ───────────────────────────────────────────────────────────
+
+  void _openStats() => Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => StatsScreen(
+            theme: widget.theme,
+            useImperial: _useImperial,
+          ),
+        ),
+      );
+
+  void _openHelp() => Navigator.push<void>(
+        context,
+        MaterialPageRoute(builder: (_) => HelpScreen(theme: widget.theme)),
+      );
+
+  void _openDebugTools() => Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DebugScreen(diagnostics: _diag, theme: widget.theme),
+        ),
+      );
+
+  void _openSettings() => Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SettingsScreen(
+            theme: widget.theme,
+            useImperial: _useImperial,
+            keepScreenOn: _keepScreenOn,
+            showSpeed: _showSpeed,
+            debugMode: _debugMode,
+            onUseImperialChanged: _setUseImperial,
+            onKeepScreenOnChanged: _setKeepScreenOn,
+            onShowSpeedChanged: _setShowSpeed,
+            onDebugModeChanged: _setDebugMode,
+            onOpenTheme: _openThemePicker,
+            onOpenDebugTools: _openDebugTools,
+          ),
+        ),
+      );
+
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
   @override
@@ -729,54 +775,23 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
     return Scaffold(
       backgroundColor: t.screenBackground,
+      drawer: ErrDrawer(
+        theme: t,
+        onStatistics: _openStats,
+        onSettings: _openSettings,
+        onHelp: _openHelp,
+        onAbout: _openInfo,
+      ),
       appBar: AppBar(
         backgroundColor: t.appBarBackground,
-        // Long-press toggles debug mode — hidden on purpose so the
-        // default UI stays clean.
-        title: GestureDetector(
-          onLongPress: _toggleDebugMode,
-          child: Text('Err', style: TextStyle(color: t.appBarTitle)),
-        ),
+        title: Text('Err', style: TextStyle(color: t.appBarTitle)),
         iconTheme: IconThemeData(color: t.appBarTitle),
         actions: [
-          if (_debugMode)
-            IconButton(
-              icon: const Icon(Icons.bug_report_outlined),
-              color: t.appBarTitle,
-              tooltip: 'Debug',
-              onPressed: () => Navigator.push<void>(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      DebugScreen(diagnostics: _diag, theme: widget.theme),
-                ),
-              ),
-            ),
           IconButton(
             icon: const Icon(Icons.bar_chart),
             color: t.appBarTitle,
             tooltip: 'Statistics',
-            onPressed: () => Navigator.push<void>(
-              context,
-              MaterialPageRoute(
-                builder: (_) => StatsScreen(
-                  theme: widget.theme,
-                  useImperial: _useImperial,
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            color: t.appBarTitle,
-            tooltip: 'About',
-            onPressed: _openInfo,
-          ),
-          IconButton(
-            icon: const Icon(Icons.palette_outlined),
-            color: t.appBarTitle,
-            tooltip: 'Theme',
-            onPressed: _openThemePicker,
+            onPressed: _openStats,
           ),
         ],
       ),
@@ -789,54 +804,6 @@ class _TrackerScreenState extends State<TrackerScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: SegmentedButton<bool>(
-                        segments: const [
-                          ButtonSegment(value: false, label: Text('Metric')),
-                          ButtonSegment(value: true, label: Text('Imperial')),
-                        ],
-                        selected: {_useImperial},
-                        onSelectionChanged: (s) =>
-                            _setUseImperial(s.first),
-                        showSelectedIcon: false,
-                        style: ButtonStyle(
-                          backgroundColor: WidgetStateProperty.resolveWith(
-                            (states) => states.contains(WidgetState.selected)
-                                ? t.toggleSelectedBackground
-                                : t.toggleUnselectedBackground,
-                          ),
-                          foregroundColor: WidgetStateProperty.resolveWith(
-                            (states) => states.contains(WidgetState.selected)
-                                ? t.toggleSelectedText
-                                : t.toggleUnselectedText,
-                          ),
-                          side: WidgetStateProperty.all(
-                            BorderSide(color: t.toggleBorder),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Text(
-                          'Keep screen on',
-                          style: TextStyle(color: t.statLabel, fontSize: 13),
-                        ),
-                        const SizedBox(width: 4),
-                        Switch(
-                          value: _keepScreenOn,
-                          onChanged: _setKeepScreenOn,
-                          activeThumbColor: t.toggleSelectedBackground,
-                          inactiveTrackColor: t.toggleUnselectedBackground,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
                     _StatTile(
                       icon: Icons.straighten,
                       label: 'Distance',
@@ -845,7 +812,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
                       labelColor: t.statDistance,
                       valueColor: t.statValue,
                     ),
-                    if (_isTracking) ...[
+                    if (_isTracking && _showSpeed) ...[
                       const SizedBox(height: 28),
                       _StatTile(
                         icon: Icons.speed,
