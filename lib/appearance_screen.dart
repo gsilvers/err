@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'appearance.dart';
 import 'err_theme.dart';
+import 'theme_scope.dart';
 
 /// Pick and tune a background image for the tracker screen. Holds a local copy
 /// of [AppearanceSettings] for instant feedback and calls [onChanged] (which
@@ -10,13 +11,11 @@ import 'err_theme.dart';
 class AppearanceScreen extends StatefulWidget {
   const AppearanceScreen({
     super.key,
-    required this.theme,
     required this.store,
     required this.settings,
     required this.onChanged,
   });
 
-  final ErrTheme theme;
   final AppearanceStore store;
   final AppearanceSettings settings;
   final ValueChanged<AppearanceSettings> onChanged;
@@ -72,7 +71,7 @@ class _AppearanceScreenState extends State<AppearanceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final t = widget.theme;
+    final t = ErrThemeScope.of(context);
     final file = widget.store.backgroundFile(_settings);
 
     return Scaffold(

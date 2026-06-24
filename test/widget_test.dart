@@ -5,6 +5,7 @@ import 'package:err/builtin_themes.dart';
 import 'package:err/help_screen.dart';
 import 'package:err/main.dart';
 import 'package:err/settings_screen.dart';
+import 'package:err/theme_scope.dart';
 
 /// Pump the app on a phone-sized surface so the centered stat column fits
 /// without a RenderFlex overflow (the default 800x600 test window is too
@@ -21,7 +22,11 @@ Future<void> _pumpApp(WidgetTester tester) async {
 Future<void> _pumpScreen(WidgetTester tester, Widget screen) async {
   await tester.binding.setSurfaceSize(const Size(1080, 2160));
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  await tester.pumpWidget(MaterialApp(home: screen));
+  await tester.pumpWidget(
+    MaterialApp(
+      home: ErrThemeScope(theme: builtinThemes.first, child: screen),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -92,7 +97,6 @@ void main() {
     await _pumpScreen(
       tester,
       SettingsScreen(
-        theme: builtinThemes.first,
         useImperial: false,
         keepScreenOn: false,
         showSpeed: true,
@@ -119,7 +123,6 @@ void main() {
       (tester) async {
     SettingsScreen settings(bool debug) => SettingsScreen(
           key: ValueKey('debug_$debug'),
-          theme: builtinThemes.first,
           useImperial: false,
           keepScreenOn: false,
           showSpeed: true,
@@ -141,7 +144,7 @@ void main() {
   });
 
   testWidgets('Help screen renders its sections', (tester) async {
-    await _pumpScreen(tester, HelpScreen(theme: builtinThemes.first));
+    await _pumpScreen(tester, const HelpScreen());
 
     expect(find.text('Getting started'), findsOneWidget);
     expect(find.text('Your data stays yours'), findsOneWidget);

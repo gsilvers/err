@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
 
 import 'err_theme.dart';
+import 'theme_scope.dart';
 
 /// In-app help. Plain, themed, scrollable prose — what the tracker does, how
 /// its numbers are kept honest, and where the data lives. Content is curated
 /// from `docs/gps-accuracy.md` and the project's privacy goals.
 class HelpScreen extends StatelessWidget {
-  const HelpScreen({super.key, required this.theme});
-
-  final ErrTheme theme;
+  const HelpScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final t = theme;
+    final t = ErrThemeScope.of(context);
     return Scaffold(
       backgroundColor: t.screenBackground,
       appBar: AppBar(

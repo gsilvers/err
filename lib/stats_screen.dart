@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'err_theme.dart';
+import 'theme_scope.dart';
 import 'trip_repository.dart';
 import 'trip_summary.dart';
 import 'units.dart';
@@ -10,11 +11,9 @@ import 'units.dart';
 class StatsScreen extends StatefulWidget {
   const StatsScreen({
     super.key,
-    required this.theme,
     required this.useImperial,
   });
 
-  final ErrTheme theme;
   final bool useImperial;
 
   @override
@@ -39,7 +38,7 @@ class _StatsScreenState extends State<StatsScreen> {
   void _reload() => setState(() => _future = _load());
 
   Future<void> _confirmDelete(TripSummary trip) async {
-    final t = widget.theme;
+    final t = ErrThemeScope.of(context);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -75,7 +74,7 @@ class _StatsScreenState extends State<StatsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final t = widget.theme;
+    final t = ErrThemeScope.of(context);
     return Scaffold(
       backgroundColor: t.screenBackground,
       appBar: AppBar(
