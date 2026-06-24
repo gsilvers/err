@@ -19,6 +19,18 @@ String formatDistance(double meters, {required bool imperial}) {
   return '${(meters / 1000).toStringAsFixed(2)} km';
 }
 
+/// Live tracker distance: shows metres/feet below the 0.1 km / 0.1 mi
+/// threshold, then km/mi. Totals use [formatDistance].
+String formatLiveDistance(double meters, {required bool imperial}) {
+  if (imperial) {
+    final feet = meters / _metersPerFoot;
+    if (feet < 528) return '${feet.toStringAsFixed(0)} ft';
+    return '${(meters / _metersPerMile).toStringAsFixed(2)} mi';
+  }
+  if (meters < 100) return '${meters.toStringAsFixed(0)} m';
+  return '${(meters / 1000).toStringAsFixed(2)} km';
+}
+
 /// Cumulative elevation gain, rounded to whole feet/metres.
 String formatElevation(double meters, {required bool imperial}) {
   if (imperial) {

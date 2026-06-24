@@ -5,6 +5,8 @@ import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'pref_keys.dart';
+
 /// The four screen edges that can carry a decorative image.
 enum DecorationEdge { top, bottom, left, right }
 
@@ -100,7 +102,7 @@ class AppearanceSettings {
 class AppearanceStore {
   AppearanceStore(this._prefs, this.decorationsDir);
 
-  static const _prefsKey = 'appearance';
+  static const _prefsKey = PrefKeys.appearance;
 
   final SharedPreferences _prefs;
   final Directory decorationsDir;
