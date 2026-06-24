@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:err/appearance.dart';
 import 'package:err/appearance_screen.dart';
 import 'package:err/builtin_themes.dart';
+import 'package:err/theme_scope.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -157,11 +158,13 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: AppearanceScreen(
+        home: ErrThemeScope(
           theme: builtinThemes.first,
-          store: store,
-          settings: const AppearanceSettings(),
-          onChanged: (_) {},
+          child: AppearanceScreen(
+            store: store,
+            settings: const AppearanceSettings(),
+            onChanged: (_) {},
+          ),
         ),
       ),
     );

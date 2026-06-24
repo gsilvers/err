@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'err_theme.dart';
+import 'theme_scope.dart';
 
 /// The one home for everything configurable. Consolidates the controls that
 /// used to clutter the tracker's body (units, keep-screen-on) and the hidden
@@ -11,7 +12,6 @@ import 'err_theme.dart';
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
-    required this.theme,
     required this.useImperial,
     required this.keepScreenOn,
     required this.showSpeed,
@@ -25,7 +25,6 @@ class SettingsScreen extends StatefulWidget {
     required this.onOpenDebugTools,
   });
 
-  final ErrTheme theme;
   final bool useImperial;
   final bool keepScreenOn;
   final bool showSpeed;
@@ -50,7 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final t = widget.theme;
+    final t = ErrThemeScope.of(context);
     return Scaffold(
       backgroundColor: t.screenBackground,
       appBar: AppBar(

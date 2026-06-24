@@ -22,6 +22,7 @@ import 'settings_screen.dart';
 import 'stats_screen.dart';
 import 'storage.dart';
 import 'theme_picker.dart';
+import 'theme_scope.dart';
 import 'tracking_controller.dart';
 import 'tracking_controls.dart';
 import 'trip_writer.dart';
@@ -108,18 +109,22 @@ class _ErrAppState extends State<ErrApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Err',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: _theme.isDark ? Brightness.dark : Brightness.light,
-      ),
-      home: TrackerScreen(
-        theme: _theme,
-        customThemes: _customThemes,
-        onThemeChanged: _applyTheme,
-        onSaveCustomTheme: _saveCustomTheme,
-        onDeleteCustomTheme: _deleteCustomTheme,
+    // The scope sits above the MaterialApp so every screen — including pushed
+    // routes — reads the live theme from context and re-themes on change.
+    return ErrThemeScope(
+      theme: _theme,
+      child: MaterialApp(
+        title: 'Err',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          brightness: _theme.isDark ? Brightness.dark : Brightness.light,
+        ),
+        home: TrackerScreen(
+          customThemes: _customThemes,
+          onThemeChanged: _applyTheme,
+          onSaveCustomTheme: _saveCustomTheme,
+          onDeleteCustomTheme: _deleteCustomTheme,
+        ),
       ),
     );
   }
@@ -130,14 +135,12 @@ class _ErrAppState extends State<ErrApp> {
 class TrackerScreen extends StatefulWidget {
   const TrackerScreen({
     super.key,
-    required this.theme,
     required this.customThemes,
     required this.onThemeChanged,
     required this.onSaveCustomTheme,
     required this.onDeleteCustomTheme,
   });
 
-  final ErrTheme theme;
   final List<ErrTheme> customThemes;
   final void Function(ErrTheme) onThemeChanged;
   final void Function(ErrTheme) onSaveCustomTheme;
@@ -441,7 +444,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
   // ── Theme picker ─────────────────────────────────────────────────────────
 
   void _openInfo() {
-    final t = widget.theme;
+    final t = ErrThemeScope.of(context);
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -517,7 +520,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
       builder: (_) => SizedBox(
         height: MediaQuery.of(context).size.height * 0.78,
         child: ThemePickerSheet(
-          activeTheme: widget.theme,
+          activeTheme: ErrThemeScope.of(context),
           customThemes: widget.customThemes,
           onSelect: (t) {
             widget.onThemeChanged(t);
@@ -545,7 +548,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
               context,
               MaterialPageRoute(
                 builder: (_) => CustomThemeEditorScreen(
-                  baseTheme: widget.theme,
+                  baseTheme: ErrThemeScope.of(context),
                   onSave: (t) {
                     widget.onSaveCustomTheme(t);
                     widget.onThemeChanged(t);
@@ -563,21 +566,19 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
   void _openStats() => Navigator.push<void>(
     context,
-    MaterialPageRoute(
-      builder: (_) =>
-          StatsScreen(theme: widget.theme, useImperial: _useImperial),
-    ),
+    MaterialPageRoute(builder: (_) => StatsScreen(useImperial: _useImperial)),
   );
 
   void _openHelp() => Navigator.push<void>(
     context,
-    MaterialPageRoute(builder: (_) => HelpScreen(theme: widget.theme)),
+    MaterialPageRoute(builder: (_) => const HelpScreen()),
   );
 
   void _openDebugTools() => Navigator.push<void>(
     context,
     MaterialPageRoute(
-      builder: (_) => DebugScreen(diagnostics: _diag, theme: widget.theme),
+      builder: (_) =>
+          DebugScreen(diagnostics: _diag, theme: ErrThemeScope.of(context)),
     ),
   );
 
@@ -588,7 +589,6 @@ class _TrackerScreenState extends State<TrackerScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => AppearanceScreen(
-          theme: widget.theme,
           store: store,
           settings: _appearance,
           onChanged: _setAppearance,
@@ -601,7 +601,6 @@ class _TrackerScreenState extends State<TrackerScreen> {
     context,
     MaterialPageRoute(
       builder: (_) => SettingsScreen(
-        theme: widget.theme,
         useImperial: _useImperial,
         keepScreenOn: _keepScreenOn,
         showSpeed: _showSpeed,
@@ -694,7 +693,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final t = widget.theme;
+    final t = ErrThemeScope.of(context);
 
     return Scaffold(
       backgroundColor: t.screenBackground,
