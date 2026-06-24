@@ -25,6 +25,7 @@ import 'stats_screen.dart';
 import 'storage.dart';
 import 'theme_picker.dart';
 import 'tracking_controls.dart';
+import 'trip_writer.dart';
 import 'units.dart';
 
 void main() {
@@ -590,8 +591,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
           .replaceAll(':', '-')
           .substring(0, 19);
 
-      await _saveGpx(dir.path, stamp);
-      await _saveCsv(dir.path, stamp);
+      await TripWriter(dir).write(_buildRecording(), stamp);
       // Rename the flight recorder to match the GPX stamp (which was
       // finalized at GPS lock, after the recorder opened).
       await _diag.stopRecorder(renameTo: '${dir.path}/$stamp-debug.csv');
@@ -611,45 +611,25 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
   // ── File saving ─────────────────────────────────────────────────────────
 
-  Future<void> _saveGpx(String dirPath, String stamp) async {
-    final buf = StringBuffer()
-      ..writeln('<?xml version="1.0" encoding="UTF-8"?>')
-      ..writeln(
-        '<gpx version="1.1" creator="Err" xmlns="http://www.topografix.com/GPX/1/1">',
-      )
-      ..writeln('  <trk>')
-      ..writeln('    <name>Track $stamp</name>');
-    for (final segment in _segments) {
-      if (segment.isEmpty) continue;
-      buf.writeln('    <trkseg>');
-      for (final p in segment) {
-        final pos = p.position;
-        buf
-          ..writeln(
-            '      <trkpt lat="${pos.latitude}" lon="${pos.longitude}">',
-          )
-          ..writeln('        <ele>${p.elevation.toStringAsFixed(2)}</ele>')
-          ..writeln(
-            '        <time>${pos.timestamp.toUtc().toIso8601String()}</time>',
-          )
-          ..writeln('      </trkpt>');
-      }
-      buf.writeln('    </trkseg>');
-    }
-    buf
-      ..writeln('  </trk>')
-      ..writeln('</gpx>');
-    await File('$dirPath/$stamp.gpx').writeAsString(buf.toString());
-  }
-
-  Future<void> _saveCsv(String dirPath, String stamp) async {
-    final distKm = (_distanceMeters / 1000).toStringAsFixed(3);
-    final elevM = _elevation.gainMeters.toStringAsFixed(1);
-    final time = formatDuration(_watch.elapsed);
-    final csv =
-        'distance_km,elevation_gain_m,total_time\n$distKm,$elevM,$time\n';
-    await File('$dirPath/$stamp.csv').writeAsString(csv);
-  }
+  /// Snapshot the in-progress tracking state as a serialisable recording for
+  /// [TripWriter].
+  TripRecording _buildRecording() => TripRecording(
+    segments: [
+      for (final segment in _segments)
+        [
+          for (final p in segment)
+            TrackPoint(
+              latitude: p.position.latitude,
+              longitude: p.position.longitude,
+              elevation: p.elevation,
+              time: p.position.timestamp,
+            ),
+        ],
+    ],
+    distanceMeters: _distanceMeters,
+    elevationGainMeters: _elevation.gainMeters,
+    elapsed: _watch.elapsed,
+  );
 
   // ── Formatting ───────────────────────────────────────────────────────────
 
