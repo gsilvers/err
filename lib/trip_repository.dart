@@ -1,7 +1,6 @@
 import 'dart:io';
 
-import 'package:path_provider/path_provider.dart';
-
+import 'storage.dart';
 import 'trip_summary.dart';
 
 /// Reads recorded activities back from disk and aggregates them.
@@ -15,15 +14,9 @@ class TripRepository {
 
   final Directory directory;
 
-  /// Resolve the same directory the tracker saves into: external storage on
-  /// Android, the documents dir elsewhere.
-  static Future<TripRepository> open() async {
-    final dir = (Platform.isAndroid
-            ? await getExternalStorageDirectory()
-            : null) ??
-        await getApplicationDocumentsDirectory();
-    return TripRepository(dir);
-  }
+  /// Resolve the same directory the tracker saves into.
+  static Future<TripRepository> open() async =>
+      TripRepository(await appStorageDirectory());
 
   /// All trips, newest first. Unparseable or partial files are skipped rather
   /// than aborting the scan.
@@ -150,16 +143,16 @@ class StatsBucket {
 /// is injectable for tests.
 class TripStats {
   TripStats(this.trips, {DateTime? reference})
-      : reference = reference ?? DateTime.now();
+    : reference = reference ?? DateTime.now();
 
   final List<TripSummary> trips;
   final DateTime reference;
 
-  StatsBucket get thisMonth => _fold((t) =>
-      t.date.year == reference.year && t.date.month == reference.month);
+  StatsBucket get thisMonth => _fold(
+    (t) => t.date.year == reference.year && t.date.month == reference.month,
+  );
 
-  StatsBucket get thisYear =>
-      _fold((t) => t.date.year == reference.year);
+  StatsBucket get thisYear => _fold((t) => t.date.year == reference.year);
 
   StatsBucket get allTime => _fold((_) => true);
 

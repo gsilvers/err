@@ -5,7 +5,6 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -20,8 +19,10 @@ import 'debug/diagnostics.dart';
 import 'elevation_tracker.dart';
 import 'err_theme.dart';
 import 'help_screen.dart';
+import 'pref_keys.dart';
 import 'settings_screen.dart';
 import 'stats_screen.dart';
+import 'storage.dart';
 import 'theme_picker.dart';
 import 'tracking_controls.dart';
 import 'units.dart';
@@ -54,12 +55,13 @@ class _ErrAppState extends State<ErrApp> {
     final prefs = await SharedPreferences.getInstance();
     _prefs = prefs;
 
-    final id = prefs.getString('selected_theme_id');
+    final id = prefs.getString(PrefKeys.selectedThemeId);
     List<ErrTheme> customs = [];
     try {
-      customs = (jsonDecode(prefs.getString('custom_themes') ?? '[]') as List)
-          .map((j) => ErrTheme.fromJson(j as Map<String, dynamic>))
-          .toList();
+      customs =
+          (jsonDecode(prefs.getString(PrefKeys.customThemes) ?? '[]') as List)
+              .map((j) => ErrTheme.fromJson(j as Map<String, dynamic>))
+              .toList();
     } catch (_) {}
 
     ErrTheme active = builtinThemes.firstWhere(
@@ -80,7 +82,7 @@ class _ErrAppState extends State<ErrApp> {
 
   void _applyTheme(ErrTheme t) {
     setState(() => _theme = t);
-    _prefs?.setString('selected_theme_id', t.id);
+    _prefs?.setString(PrefKeys.selectedThemeId, t.id);
   }
 
   void _saveCustomTheme(ErrTheme t) {
@@ -88,7 +90,7 @@ class _ErrAppState extends State<ErrApp> {
       _customThemes = [..._customThemes.where((c) => c.id != t.id), t];
     });
     _prefs?.setString(
-      'custom_themes',
+      PrefKeys.customThemes,
       jsonEncode(_customThemes.map((c) => c.toJson()).toList()),
     );
   }
@@ -98,7 +100,7 @@ class _ErrAppState extends State<ErrApp> {
       _customThemes = _customThemes.where((t) => t.id != id).toList();
     });
     _prefs?.setString(
-      'custom_themes',
+      PrefKeys.customThemes,
       jsonEncode(_customThemes.map((c) => c.toJson()).toList()),
     );
     if (_theme.id == id) _applyTheme(builtinThemes.first);
@@ -211,10 +213,10 @@ class _TrackerScreenState extends State<TrackerScreen> {
       _prefs = prefs;
       _appearanceStore = appearanceStore;
       _appearance = appearance;
-      _keepScreenOn = prefs.getBool('keep_screen_on') ?? false;
-      _debugMode = prefs.getBool('debug_mode') ?? false;
-      _useImperial = prefs.getBool('use_imperial') ?? false;
-      _showSpeed = prefs.getBool('show_speed') ?? true;
+      _keepScreenOn = prefs.getBool(PrefKeys.keepScreenOn) ?? false;
+      _debugMode = prefs.getBool(PrefKeys.debugMode) ?? false;
+      _useImperial = prefs.getBool(PrefKeys.useImperial) ?? false;
+      _showSpeed = prefs.getBool(PrefKeys.showSpeed) ?? true;
     });
   }
 
@@ -225,22 +227,22 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
   void _setUseImperial(bool v) {
     setState(() => _useImperial = v);
-    _prefs?.setBool('use_imperial', v);
+    _prefs?.setBool(PrefKeys.useImperial, v);
   }
 
   void _setShowSpeed(bool v) {
     setState(() => _showSpeed = v);
-    _prefs?.setBool('show_speed', v);
+    _prefs?.setBool(PrefKeys.showSpeed, v);
   }
 
   void _setDebugMode(bool v) {
     setState(() => _debugMode = v);
-    _prefs?.setBool('debug_mode', v);
+    _prefs?.setBool(PrefKeys.debugMode, v);
   }
 
   void _setKeepScreenOn(bool v) {
     setState(() => _keepScreenOn = v);
-    _prefs?.setBool('keep_screen_on', v);
+    _prefs?.setBool(PrefKeys.keepScreenOn, v);
     if (_isTracking) {
       if (v) {
         WakelockPlus.enable();
@@ -318,9 +320,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
       // Flight recorder: every raw sample + verdict, written beside the
       // GPX. Failures here must never block tracking.
       try {
-        final dir =
-            (Platform.isAndroid ? await getExternalStorageDirectory() : null) ??
-            await getApplicationDocumentsDirectory();
+        final dir = await appStorageDirectory();
         final stamp = _startTime!
             .toIso8601String()
             .replaceAll(':', '-')
@@ -583,9 +583,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
     }
 
     try {
-      final dir =
-          (Platform.isAndroid ? await getExternalStorageDirectory() : null) ??
-          await getApplicationDocumentsDirectory();
+      final dir = await appStorageDirectory();
 
       final stamp = (_startTime ?? DateTime.now())
           .toIso8601String()
@@ -645,47 +643,23 @@ class _TrackerScreenState extends State<TrackerScreen> {
   }
 
   Future<void> _saveCsv(String dirPath, String stamp) async {
-    final elapsed = _watch.elapsed;
     final distKm = (_distanceMeters / 1000).toStringAsFixed(3);
     final elevM = _elevation.gainMeters.toStringAsFixed(1);
-    final h = elapsed.inHours.toString().padLeft(2, '0');
-    final m = (elapsed.inMinutes % 60).toString().padLeft(2, '0');
-    final s = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
+    final time = formatDuration(_watch.elapsed);
     final csv =
-        'distance_km,elevation_gain_m,total_time\n$distKm,$elevM,$h:$m:$s\n';
+        'distance_km,elevation_gain_m,total_time\n$distKm,$elevM,$time\n';
     await File('$dirPath/$stamp.csv').writeAsString(csv);
   }
 
   // ── Formatting ───────────────────────────────────────────────────────────
 
-  String _fmtDistance() {
-    if (_useImperial) {
-      final feet = _distanceMeters * 3.28084;
-      // Switch to miles once past 0.1 mi (528 ft); show feet below that.
-      if (feet < 528) return '${feet.toStringAsFixed(0)} ft';
-      return '${(feet / 5280).toStringAsFixed(2)} mi';
-    }
-    // Switch to km once past 0.1 km (100 m); show meters below that.
-    if (_distanceMeters < 100) {
-      return '${_distanceMeters.toStringAsFixed(0)} m';
-    }
-    return '${(_distanceMeters / 1000).toStringAsFixed(2)} km';
-  }
+  String _fmtDistance() =>
+      formatLiveDistance(_distanceMeters, imperial: _useImperial);
 
-  String _fmtElevation() {
-    if (_useImperial) {
-      return '+${(_elevation.gainMeters * 3.28084).toStringAsFixed(0)} ft';
-    }
-    return '+${_elevation.gainMeters.toStringAsFixed(0)} m';
-  }
+  String _fmtElevation() =>
+      '+${formatElevation(_elevation.gainMeters, imperial: _useImperial)}';
 
-  String _fmtTime() {
-    final elapsed = _watch.elapsed;
-    final h = elapsed.inHours.toString().padLeft(2, '0');
-    final m = (elapsed.inMinutes % 60).toString().padLeft(2, '0');
-    final s = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
-    return '$h:$m:$s';
-  }
+  String _fmtTime() => formatDuration(_watch.elapsed);
 
   String _fmtSpeed() => formatSpeed(_currentSpeed, imperial: _useImperial);
 
