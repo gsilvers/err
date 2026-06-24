@@ -34,6 +34,10 @@ analysis_options.yaml     # Analyzer + lint config (flutter_lints)
 .github/workflows/build.yml  # CI: builds and releases the Android APK
 ```
 
+See [`docs/architecture.md`](docs/architecture.md) for the full module map, the
+layering (UI → controllers → repositories → domain/models), and the planned
+refactor direction.
+
 The Android `applicationId`/`namespace` is currently `com.example.err`.
 
 ## Building & Testing
