@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -16,7 +15,6 @@ import 'builtin_themes.dart';
 import 'custom_theme_editor.dart';
 import 'debug/debug_screen.dart';
 import 'debug/diagnostics.dart';
-import 'elevation_tracker.dart';
 import 'err_theme.dart';
 import 'help_screen.dart';
 import 'pref_keys.dart';
@@ -24,6 +22,7 @@ import 'settings_screen.dart';
 import 'stats_screen.dart';
 import 'storage.dart';
 import 'theme_picker.dart';
+import 'tracking_controller.dart';
 import 'tracking_controls.dart';
 import 'trip_writer.dart';
 import 'units.dart';
@@ -149,10 +148,9 @@ class TrackerScreen extends StatefulWidget {
 }
 
 class _TrackerScreenState extends State<TrackerScreen> {
-  bool _isTracking = false;
+  // Pressed Start, still resolving permission / awaiting the first lock. This
+  // covers the brief window before the controller flips to `acquiring`.
   bool _starting = false;
-  bool _paused = false;
-  bool _gpsReady = false;
   bool _useImperial = false;
   bool _keepScreenOn = false;
   bool _showSpeed = true;
@@ -160,25 +158,9 @@ class _TrackerScreenState extends State<TrackerScreen> {
   String? _message;
   bool _messageIsError = false;
 
-  double _distanceMeters = 0;
-  double _currentSpeed = 0; // m/s, from the latest accepted GPS fix
-
-  /// Active (unpaused) tracking time. A [Stopwatch] only advances while
-  /// running, so stopping it on pause and restarting on resume excludes
-  /// paused time for free.
-  final Stopwatch _watch = Stopwatch();
-
-  /// Set on resume so the next accepted fix re-anchors in a fresh GPX segment
-  /// instead of drawing a line across — and counting distance for — wherever
-  /// the user moved while paused.
-  bool _resumeAnchorPending = false;
-
-  Position? _lastPosition;
-  DateTime? _startTime;
-  List<List<_TrackPoint>> _segments = [];
-  ElevationTracker _elevation = ElevationTracker();
   final TrackingDiagnostics _diag = TrackingDiagnostics();
-  int _teleportRejects = 0;
+  late final TrackingController _controller;
+
   SharedPreferences? _prefs;
   AppearanceStore? _appearanceStore;
   AppearanceSettings _appearance = const AppearanceSettings();
@@ -189,20 +171,22 @@ class _TrackerScreenState extends State<TrackerScreen> {
   @override
   void initState() {
     super.initState();
+    _controller = TrackingController(diagnostics: _diag);
+    _controller.addListener(_onTrackingChanged);
     _clockTicker = Timer.periodic(
       const Duration(seconds: 1),
       (_) => setState(() {}),
     );
-    _diag.trackerSnapshot = () => _elevation.debugSnapshot();
-    _diag.statsProvider = () => {
-      'distance': _distanceMeters,
-      'gain': _elevation.gainMeters,
-      'elapsed': _watch.elapsed.inSeconds,
-      'points': _segments.fold<int>(0, (n, s) => n + s.length),
-      'segments': _segments.length,
-      'tracking': _isTracking,
-    };
     _loadPrefs();
+  }
+
+  void _onTrackingChanged() {
+    // Clear the "waiting for GPS" prompt the moment a lock is achieved.
+    if (_controller.status == TrackingStatus.tracking &&
+        _message == 'Waiting for GPS lock…') {
+      _message = null;
+    }
+    setState(() {});
   }
 
   Future<void> _loadPrefs() async {
@@ -244,7 +228,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
   void _setKeepScreenOn(bool v) {
     setState(() => _keepScreenOn = v);
     _prefs?.setBool(PrefKeys.keepScreenOn, v);
-    if (_isTracking) {
+    if (_controller.isTracking) {
       if (v) {
         WakelockPlus.enable();
       } else {
@@ -276,44 +260,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
       return;
     }
 
-    _distanceMeters = 0;
-    _currentSpeed = 0;
-    _watch
-      ..stop()
-      ..reset();
-    _paused = false;
-    _resumeAnchorPending = false;
-    _lastPosition = null;
-    _gpsReady = false;
-    _elevation = ElevationTracker();
-    _elevation.onEvent = (msg) => _diag.event('elev', msg);
-    // Until the baro offset freezes, points carry raw GPS elevations that
-    // can sit in a different reference frame than the fused stream (the
-    // 51 m cliff at the start of the 2026-06-10 walk's GPX). Backfill them
-    // into the fused frame the moment calibration completes.
-    _elevation.onCalibrated = (offset) {
-      for (final segment in _segments) {
-        for (final p in segment) {
-          if (!p.fused && p.rawBaro != null) {
-            p.elevation = p.rawBaro! + offset;
-          }
-        }
-      }
-    };
-    // A mid-track reference rebase (provider switch) shifts every recorded
-    // elevation by the same delta, so the whole track stays in one
-    // consistent frame instead of acquiring a cliff at the switch point.
-    _elevation.onRebase = (delta) {
-      for (final segment in _segments) {
-        for (final p in segment) {
-          p.elevation += delta;
-        }
-      }
-    };
-    _teleportRejects = 0;
-    _segments = [[]];
-    _startTime = DateTime.now();
-    _diag.resetTrip();
+    final startTime = _controller.beginAcquiring();
 
     if (_keepScreenOn) await WakelockPlus.enable();
 
@@ -322,13 +269,15 @@ class _TrackerScreenState extends State<TrackerScreen> {
       // GPX. Failures here must never block tracking.
       try {
         final dir = await appStorageDirectory();
-        final stamp = _startTime!
+        final stamp = startTime
             .toIso8601String()
             .replaceAll(':', '-')
             .substring(0, 19);
         _diag.startRecorder('${dir.path}/$stamp-debug.csv');
       } catch (_) {}
     }
+
+    setState(() => _starting = false);
 
     _positionSub =
         Geolocator.getPositionStream(
@@ -353,7 +302,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
                   showBackgroundLocationIndicator: true,
                 ),
         ).listen(
-          _onPosition,
+          _controller.addPosition,
           onError: (e) {
             setState(() {
               _message = 'GPS error: $e';
@@ -365,178 +314,27 @@ class _TrackerScreenState extends State<TrackerScreen> {
     // Start barometer; errors mean the device has no sensor — fall back to GPS.
     _baroSub = Sensors()
         .barometerEventStream(samplingPeriod: const Duration(seconds: 2))
-        .listen(_onBarometer, onError: (_) {});
+        .listen(
+          (event) => _controller.addBarometerPressure(event.pressure),
+          onError: (_) {},
+        );
 
-    // Timer and _isTracking flip happen in _onPosition once a fresh fix arrives.
+    // The controller flips to `tracking` once a fresh fix arrives.
   }
 
   void _pause() {
-    if (!_isTracking || _paused) return;
-    _watch.stop();
+    if (!_controller.isTracking || _controller.isPaused) return;
+    _controller.pause();
     setState(() {
-      _paused = true;
-      _currentSpeed = 0;
       _message = 'Paused';
       _messageIsError = false;
     });
   }
 
   void _resume() {
-    if (!_isTracking || !_paused) return;
-    _watch.start();
-    setState(() {
-      _paused = false;
-      _resumeAnchorPending = true;
-      _message = null;
-    });
-  }
-
-  void _onBarometer(BarometerEvent event) {
-    if (_paused) return; // no elevation gain accrues while paused
-    // No setState — the 1 s clock ticker repaints the gain soon enough.
-    final rawAlt = ElevationTracker.pressureToAltitude(event.pressure);
-    _elevation.addBarometer(rawAlt, DateTime.now());
-    _diag.baroSample(event.pressure, rawAlt);
-  }
-
-  void _onPosition(Position pos) {
-    if (_paused) return; // ignore fixes entirely while paused
-
-    // Discard low-accuracy fixes — a 40 m horizontal error connecting two
-    // sloppy points inflates distance just as badly as moving.
-    if (pos.accuracy > 25) {
-      _diag.gpsFix(
-        pos,
-        'reject-accuracy',
-        'REJECT acc>25 (${pos.accuracy.toStringAsFixed(1)} m)',
-      );
-      return;
-    }
-
-    if (!_gpsReady) {
-      // Discard positions acquired more than 5 s before we pressed Start —
-      // those are stale cached fixes that would produce a phantom distance jump.
-      final staleThreshold = _startTime!.subtract(const Duration(seconds: 5));
-      if (pos.timestamp.isBefore(staleThreshold)) {
-        _diag.gpsFix(
-          pos,
-          'reject-stale',
-          'REJECT stale (cached pre-start fix)',
-        );
-        return;
-      }
-
-      // Fresh fix — anchor here and begin active tracking. The 1 s clock
-      // ticker repaints the elapsed time read from _watch.
-      _watch
-        ..reset()
-        ..start();
-      _elevation.addGps(pos.altitude, pos.altitudeAccuracy);
-      _diag.gpsFix(
-        pos,
-        'anchor',
-        'ACCEPT anchor acc=${pos.accuracy.toStringAsFixed(1)} m — tracking begins',
-      );
-      setState(() {
-        _gpsReady = true;
-        _startTime = DateTime.now();
-        _lastPosition = pos;
-        _currentSpeed = pos.speed;
-        _segments.last.add(
-          _TrackPoint(
-            pos,
-            _elevation.currentAltitude,
-            rawBaro: _elevation.lastRawBarometricAltitude,
-          ),
-        );
-        _isTracking = true;
-        _starting = false;
-        _message = null;
-      });
-      return;
-    }
-
-    if (_resumeAnchorPending) {
-      // First fix after a resume: re-anchor in a new segment so the paused
-      // interval is a break in the GPX, and count no distance for it.
-      _resumeAnchorPending = false;
-      _segments.add([]);
-      _teleportRejects = 0;
-      _elevation.addGps(pos.altitude, pos.altitudeAccuracy);
-      _diag.gpsFix(pos, 'resume', 'ACCEPT resume re-anchor — new segment');
-      setState(() {
-        _lastPosition = pos;
-        _currentSpeed = pos.speed;
-        _segments.last.add(
-          _TrackPoint(
-            pos,
-            _elevation.currentAltitude,
-            rawBaro: _elevation.lastRawBarometricAltitude,
-          ),
-        );
-      });
-      return;
-    }
-
-    final last = _lastPosition;
-    if (last != null) {
-      final gapSec = pos.timestamp.difference(last.timestamp).inSeconds.abs();
-      if (gapSec > 60) {
-        // GPS was lost for more than 60 s — open a new segment so the gap
-        // appears as a break in GPX viewers and is not counted as distance.
-        _segments.add([]);
-        _teleportRejects = 0;
-        _diag.segmentSplit('gap ${gapSec}s');
-      } else {
-        final meters = Geolocator.distanceBetween(
-          last.latitude,
-          last.longitude,
-          pos.latitude,
-          pos.longitude,
-        );
-        // Reject teleports: a fix implying a speed far beyond what the GPS
-        // receiver itself reports is a provider glitch, not movement.
-        final implied = meters / max(gapSec, 1);
-        final speedCap = max(pos.speed > 0 ? pos.speed * 3 : 0.0, 15.0);
-        if (implied > speedCap) {
-          _teleportRejects++;
-          if (_teleportRejects < 3) {
-            _diag.gpsFix(
-              pos,
-              'teleport',
-              'TELEPORT $_teleportRejects/3 implied=${implied.toStringAsFixed(1)} m/s cap=${speedCap.toStringAsFixed(1)}',
-            );
-            return;
-          }
-          // Three impossible fixes in a row means the previous anchor was
-          // the glitch — re-anchor here in a new segment, counting nothing.
-          _segments.add([]);
-          _teleportRejects = 0;
-          _diag.segmentSplit('re-anchor after 3 teleports');
-        } else {
-          _teleportRejects = 0;
-          _distanceMeters += meters;
-        }
-      }
-    }
-
-    _elevation.addGps(pos.altitude, pos.altitudeAccuracy);
-    _diag.gpsFix(
-      pos,
-      'accept',
-      'ACCEPT acc=${pos.accuracy.toStringAsFixed(1)} m alt=${pos.altitude.toStringAsFixed(1)} m',
-    );
-    setState(() {
-      _lastPosition = pos;
-      _currentSpeed = pos.speed;
-      _segments.last.add(
-        _TrackPoint(
-          pos,
-          _elevation.currentAltitude,
-          rawBaro: _elevation.lastRawBarometricAltitude,
-        ),
-      );
-    });
+    if (!_controller.isPaused) return;
+    _controller.resume();
+    setState(() => _message = null);
   }
 
   Future<void> _stop() async {
@@ -563,18 +361,13 @@ class _TrackerScreenState extends State<TrackerScreen> {
 
     await _baroSub?.cancel();
     _baroSub = null;
-    _watch.stop();
 
     if (_keepScreenOn) await WakelockPlus.disable();
 
-    setState(() {
-      _isTracking = false;
-      _starting = false;
-      _paused = false;
-      _gpsReady = false;
-    });
+    setState(() => _starting = false);
+    final recording = _controller.finish();
 
-    if (_segments.every((s) => s.isEmpty)) {
+    if (recording.isEmpty) {
       await _diag.stopRecorder();
       setState(() {
         _message = 'No points recorded — nothing saved.';
@@ -586,12 +379,12 @@ class _TrackerScreenState extends State<TrackerScreen> {
     try {
       final dir = await appStorageDirectory();
 
-      final stamp = (_startTime ?? DateTime.now())
+      final stamp = (_controller.startTime ?? DateTime.now())
           .toIso8601String()
           .replaceAll(':', '-')
           .substring(0, 19);
 
-      await TripWriter(dir).write(_buildRecording(), stamp);
+      await TripWriter(dir).write(recording, stamp);
       // Rename the flight recorder to match the GPX stamp (which was
       // finalized at GPS lock, after the recorder opened).
       await _diag.stopRecorder(renameTo: '${dir.path}/$stamp-debug.csv');
@@ -609,39 +402,18 @@ class _TrackerScreenState extends State<TrackerScreen> {
     }
   }
 
-  // ── File saving ─────────────────────────────────────────────────────────
-
-  /// Snapshot the in-progress tracking state as a serialisable recording for
-  /// [TripWriter].
-  TripRecording _buildRecording() => TripRecording(
-    segments: [
-      for (final segment in _segments)
-        [
-          for (final p in segment)
-            TrackPoint(
-              latitude: p.position.latitude,
-              longitude: p.position.longitude,
-              elevation: p.elevation,
-              time: p.position.timestamp,
-            ),
-        ],
-    ],
-    distanceMeters: _distanceMeters,
-    elevationGainMeters: _elevation.gainMeters,
-    elapsed: _watch.elapsed,
-  );
-
   // ── Formatting ───────────────────────────────────────────────────────────
 
   String _fmtDistance() =>
-      formatLiveDistance(_distanceMeters, imperial: _useImperial);
+      formatLiveDistance(_controller.distanceMeters, imperial: _useImperial);
 
   String _fmtElevation() =>
-      '+${formatElevation(_elevation.gainMeters, imperial: _useImperial)}';
+      '+${formatElevation(_controller.elevationGainMeters, imperial: _useImperial)}';
 
-  String _fmtTime() => formatDuration(_watch.elapsed);
+  String _fmtTime() => formatDuration(_controller.elapsed);
 
-  String _fmtSpeed() => formatSpeed(_currentSpeed, imperial: _useImperial);
+  String _fmtSpeed() =>
+      formatSpeed(_controller.currentSpeedMps, imperial: _useImperial);
 
   String _fmtDateTime() {
     const months = [
@@ -852,6 +624,8 @@ class _TrackerScreenState extends State<TrackerScreen> {
     _positionSub?.cancel();
     _baroSub?.cancel();
     _clockTicker?.cancel();
+    _controller.removeListener(_onTrackingChanged);
+    _controller.dispose();
     _diag.dispose();
     if (_keepScreenOn) WakelockPlus.disable().ignore();
     super.dispose();
@@ -966,7 +740,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
                           labelColor: t.statDistance,
                           valueColor: t.statValue,
                         ),
-                        if (_isTracking && _showSpeed) ...[
+                        if (_controller.isTracking && _showSpeed) ...[
                           const SizedBox(height: 28),
                           _StatTile(
                             icon: Icons.speed,
@@ -1023,9 +797,9 @@ class _TrackerScreenState extends State<TrackerScreen> {
               ),
               TrackingControls(
                 theme: t,
-                isTracking: _isTracking,
-                paused: _paused,
-                starting: _starting,
+                isTracking: _controller.isTracking,
+                paused: _controller.isPaused,
+                starting: _starting || _controller.isAcquiring,
                 onStart: _start,
                 onPause: _pause,
                 onResume: _resume,
@@ -1037,28 +811,6 @@ class _TrackerScreenState extends State<TrackerScreen> {
       ),
     );
   }
-}
-
-// ─── Track point ─────────────────────────────────────────────────────────────
-
-class _TrackPoint {
-  _TrackPoint(this.position, double? fusedAltitude, {this.rawBaro})
-    : fused = fusedAltitude != null,
-      elevation = fusedAltitude ?? position.altitude;
-
-  final Position position;
-
-  /// Raw barometric altitude at capture time, kept so pre-calibration
-  /// points can be backfilled into the fused frame once the offset freezes.
-  final double? rawBaro;
-
-  /// Whether [elevation] came from the fused stream (vs raw GPS fallback).
-  final bool fused;
-
-  /// The fused altitude at the time the point was recorded — the same value
-  /// the elevation-gain figure is computed from, so the GPX and UI agree.
-  /// Mutable: backfilled at calibration and shifted on reference rebases.
-  double elevation;
 }
 
 // ─── Info row (used in about dialog) ─────────────────────────────────────────
