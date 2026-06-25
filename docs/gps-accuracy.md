@@ -195,6 +195,11 @@ so gain recomputed from the file matches the gain shown in the app.
   The sustained-climb filter absorbs most of it; for all-day hikes a
   server-side DEM correction would eliminate it entirely, but that requires
   infrastructure Err deliberately does not have.
+- **Indoor / GPS-denied elevation inflation** — when GPS drops out (e.g.
+  indoors) the barometer is the only altitude source and nothing bounds it, so
+  indoor pressure artifacts (HVAC, stairwell stack effect, doors) can bank large
+  phantom gain that never appears in the GPX. Under investigation — see
+  [elevation-inflation.org](./elevation-inflation.org).
 - **Climbs smaller than the threshold** — rolling terrain with hills under
   3 m (barometer) or 10 m (GPS) of relief records no gain. This matches
   Strava/Garmin behaviour, which flatten the same micro-terrain.
