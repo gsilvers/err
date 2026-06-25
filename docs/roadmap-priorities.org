@@ -16,7 +16,7 @@ Err is already pretty useful to me today but to make all of these happen there n
 3. Deterministic process for built in themes
 4. Help Screen and Config Screen navigation — DONE ([[https://github.com/gsilvers/err/pull/32][PR #32]])
 5. Documentation for developers
-6. Refactor and code cleanup
+6. Refactor and code cleanup — DONE ([[https://github.com/gsilvers/err/pull/37][PR #37]], [[https://github.com/gsilvers/err/pull/38][PR #38]], [[https://github.com/gsilvers/err/pull/39][PR #39]], [[https://github.com/gsilvers/err/pull/40][PR #40]])
 
 
 *** DONE Statistics browsing
@@ -63,7 +63,9 @@ The main screen is cluttered. There should be an easy way to get to help, config
 
 This is a big blocker. I don't want to keep paying for claude. This project will welcome AI aided PR's but the goal is for humans to use and maintain this code. It's a fucking mess right now and we need documentation on how flutter works, how dart works and how we expect code to be contributed.
 
-***  Refactor and code cleanup
+*** DONE Refactor and code cleanup
+
+Delivered as an incremental, behaviour-preserving sequence: consolidation pass ([[https://github.com/gsilvers/err/pull/37][PR #37]]), TripWriter extraction ([[https://github.com/gsilvers/err/pull/38][PR #38]]), the TrackingController engine ([[https://github.com/gsilvers/err/pull/39][PR #39]]), and theme provided via an InheritedWidget ([[https://github.com/gsilvers/err/pull/40][PR #40]]). main.dart went from a ~1,200-line god-file to a thin widget over tested layers. A repo-wide format + stricter-lint pass remains as an optional follow-up.
 
 Same here claude is pretty wild. I'm happy to use it to get out of the Saas trap BUT the code is hard to read. We need to extract and clarify the code so its easier for humans to parse and maintain.
 
