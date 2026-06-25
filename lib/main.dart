@@ -739,7 +739,7 @@ class _TrackerScreenState extends State<TrackerScreen> {
                           labelColor: t.statDistance,
                           valueColor: t.statValue,
                         ),
-                        if (_controller.isTracking && _showSpeed) ...[
+                        if (_showSpeed) ...[
                           const SizedBox(height: 28),
                           _StatTile(
                             icon: Icons.speed,
