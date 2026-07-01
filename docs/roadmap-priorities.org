@@ -1,3 +1,38 @@
+* State of Err 2026-07-01
+
+After a few more sessions with claude and some testing the app is in a pretty good place. I can understand a lot of the previous spaghetti code and there's enough documentation to get to work. I think that leaves me with a new set of priorities.
+
+** Priorities as of now
+
+*** Deterministic method for generating themes from upstream.
+
+We're using Prot's repo as a "source" of inspiration for the themes. Claude just kinda winged it in terms of making them and documented little. I'd like a way / script / something that can deterministically sync our base themes with Prot's.
+
+*** User Documentation
+
+**** Themeing Docs
+
+I've done a ton of testing, putting transparant overlays in and such and it would be good to show people how to get cozy using the app.
+
+**** General user Docs
+
+A guide of how the app works, how to report issues etc would be good in the repo and in app.
+
+**** PR / Contribution Guidance
+
+Just a general idea for devs who want to submit things.
+
+*** Forums, Chat Room, Public Page
+
+Get the project presentable so I can be ready for new users.
+
+*** Share the Project
+
+Start to promote this thing organically by posting it to mastodon and showing it to people.
+
+**** Something like a buisness card or zine to give people about it.
+
+
 * State of Err 2026-06-22
 
 Overall err has a few basic goals:
@@ -13,9 +48,9 @@ Err is already pretty useful to me today but to make all of these happen there n
 
 1. Statistics browsing — DONE ([[https://github.com/gsilvers/err/pull/31][PR #31]])
 2. Additional theme and ux tweaks — DONE ([[https://github.com/gsilvers/err/pull/31][PR #31]], [[https://github.com/gsilvers/err/pull/33][PR #33]], [[https://github.com/gsilvers/err/pull/34][PR #34]], [[https://github.com/gsilvers/err/pull/35][PR #35]])
-3. Deterministic process for built in themes
+3. Deterministic process for built in themes (skipped)
 4. Help Screen and Config Screen navigation — DONE ([[https://github.com/gsilvers/err/pull/32][PR #32]])
-5. Documentation for developers
+5. Documentation for developers - DONE
 6. Refactor and code cleanup — DONE ([[https://github.com/gsilvers/err/pull/37][PR #37]], [[https://github.com/gsilvers/err/pull/38][PR #38]], [[https://github.com/gsilvers/err/pull/39][PR #39]], [[https://github.com/gsilvers/err/pull/40][PR #40]])
 
 
