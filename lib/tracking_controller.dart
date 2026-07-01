@@ -275,6 +275,7 @@ class TrackingController extends ChangeNotifier {
   TripRecording finish() {
     _watch.stop();
     _status = TrackingStatus.idle;
+    _currentSpeed = 0; // not moving once stopped — the idle Speed tile reads 0
     final recording = _recording();
     notifyListeners();
     return recording;

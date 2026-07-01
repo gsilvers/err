@@ -73,10 +73,13 @@ void main() {
     expect(find.text('Keep screen on'), findsNothing);
   });
 
-  testWidgets('speed tile is hidden until tracking starts', (tester) async {
+  testWidgets('speed tile is shown on the main screen when idle', (
+    tester,
+  ) async {
     await _pumpApp(tester);
 
-    expect(find.text('Speed'), findsNothing);
+    // The Speed field is always visible (default on), even before tracking.
+    expect(find.text('Speed'), findsOneWidget);
   });
 
   testWidgets('drawer exposes the navigation destinations', (tester) async {

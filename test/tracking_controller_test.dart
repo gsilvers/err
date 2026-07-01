@@ -136,8 +136,10 @@ void main() {
     c.addPosition(
       _pos(lat: 1.0001, lon: 1.0, time: _clock.add(const Duration(seconds: 3))),
     );
+    expect(c.currentSpeedMps, greaterThan(0)); // moving before stop
     final recording = c.finish();
     expect(c.status, TrackingStatus.idle);
+    expect(c.currentSpeedMps, 0); // speed clears once stopped
     expect(recording.isEmpty, isFalse);
     expect(recording.segments.first.length, 2);
     expect(recording.distanceMeters, closeTo(11.1, 1.5));
