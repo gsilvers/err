@@ -4,6 +4,10 @@ After a few more sessions with claude and some testing the app is in a pretty go
 
 ** Priorities as of now
 
+*** Make a few tweaks / refactors by hand
+
+The LLM did a good refactor but I should tweak some stuff even if its names and doc strings to get familiar with the codebase.
+
 *** Deterministic method for generating themes from upstream.
 
 We're using Prot's repo as a "source" of inspiration for the themes. Claude just kinda winged it in terms of making them and documented little. I'd like a way / script / something that can deterministically sync our base themes with Prot's.
