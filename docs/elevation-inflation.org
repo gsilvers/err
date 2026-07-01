@@ -1,0 +1,186 @@
+#+TITLE: Elevation gain inflation on GPS-denied (indoor) stretches
+#+OPTIONS: toc:nil
+
+* Summary
+
+On a ~48 minute walk the *live* elevation-gain readout in the app climbed past
+*500+ ft*, while the *saved GPX*, viewed afterward, looks legitimate — a flat
+~20 m (66 ft) total range and only ~12 m of real climb. The inflation accrues
+during *indoor / GPS-denied* stretches, where the barometer is the only
+altitude source and nothing sanity-checks it.
+
+This document records the observation and the leading hypothesis so we can
+investigate properly once we have per-sample debug traces. *No fix has been
+made; this is an investigation note, not a design.*
+
+All coordinates in this document are *fabricated* — only the elevation/time
+*pattern* is reproduced from the real recording.
+
+* What was observed
+
+- Trip: a ~48 minute walk (2026-06-12), recorded with a device that has a
+  barometer.
+- *During recording*, in the app: the elevation-gain stat climbed past ~500 ft.
+- *After the walk*, viewing the saved =.gpx=: it looks fine — total elevation
+  range ~20 m (66 ft).
+- The walk included an *indoor portion*: GPS dropped out, the wearer kept
+  moving and genuinely climbed about *3 storeys (~12 m)*, then GPS re-acquired
+  in a different spot.
+
+So the on-screen number and the file disagree by an order of magnitude, and the
+real climb (~12 m) is a small fraction of what the app reported.
+
+* The file and the live counter are two different numbers
+
+They are fed by two *different sample streams*:
+
+| Number             | Source                              | Cadence                          |
+|--------------------+-------------------------------------+----------------------------------|
+| Live gain (in app) | Barometer-driven fused altitude     | ~1 sample / 1–2 s, *continuously* |
+| GPX =<ele>= points | Fused altitude at *accepted GPS fixes* | only when moving with a fix (5 m filter) |
+
+Anything banked while GPS is unavailable has *no corresponding points in the
+GPX*. The file therefore cannot show it, and a GPX viewer cannot recompute it.
+
+What the recorded points imply for this walk:
+
+| Method (on the saved points)               | Gain            |
+|--------------------------------------------+-----------------|
+| Total min→max elevation range              | 20 m (66 ft)    |
+| Tracker-style 3 m hysteresis on the points | ~12 m (41 ft)   |
+| Naive sum of every positive delta (noisy)  | ~101 m (331 ft) |
+| *Live in-app counter (observed)*           | *500+ ft*       |
+
+* The GPS gaps (anonymised)
+
+The track split into 4 segments — i.e. 3 gaps where GPS was lost. The elevation
+*change across each gap's endpoints* is modest; the real action happened
+*inside* the gaps, unrecorded:
+
+| Gap | Duration | Δ elevation across endpoints |
+|-----+----------+------------------------------|
+| 1→2 | ~133 s   | +8.2 m  (a real climb, e.g. going up)   |
+| 2→3 | ~378 s   | −0.6 m                                  |
+| 3→4 | ~600 s   | −0.4 m  (~10 min indoors; endpoints flat) |
+
+The ~10 minute gap is the smoking gun: its endpoints are essentially level
+(−0.4 m), yet the wearer was moving (and on stairs) the whole time, and the live
+counter kept accruing — none of which is visible in the file.
+
+* Anonymised trace excerpt
+
+End of one segment, then a multi-minute jump to the start of the next segment
+(coordinates fabricated; elevation/time pattern preserved):
+
+#+begin_example
+    <trkseg>
+      ...
+      <trkpt lat="45.00118" lon="-93.00207">
+        <ele>129.87</ele>
+        <time>2026-06-12T11:29:15.000Z</time>
+      </trkpt>
+    </trkseg>
+    <!-- GPS lost here: ~10 minutes, no points recorded (indoors) -->
+    <trkseg>
+      <trkpt lat="45.00231" lon="-93.00149">
+        <ele>122.86</ele>
+        <time>2026-06-12T11:39:15.000Z</time>
+      </trkpt>
+      ...
+#+end_example
+
+The two endpoints differ by well under a metre, but the live gain grew by
+hundreds of feet across that window.
+
+* Why the barometer over-counts indoors
+
+A barometer infers *relative* altitude from air pressure. Indoors that pressure
+is hostile: HVAC pressurisation cycling, the stairwell "stack effect" in a
+multi-storey building, doors opening, elevators, and temperature all produce
+large *sustained* apparent altitude swings — not just the quick spikes the
+smoothing is built to absorb.
+
+The fusion + gain filter ([[../lib/elevation_tracker.dart][lib/elevation_tracker.dart]]) uses an exponential
+moving average plus a *3 m sustained-climb hysteresis* with an 8-sample hold.
+That is tuned for *outdoor* noise, and has two gaps that let indoor artifacts
+through:
+
+1. *No vertical climb-rate cap.* Nothing rejects an implausibly fast apparent
+   climb. There is a horizontal "teleport" speed cap for distance (a fix
+   implying impossible ground speed is rejected) but no elevation equivalent —
+   a pressure jump implying a 10 m/s ascent is treated the same as real terrain.
+2. *Once a climb is "confirmed", every new high accrues with no further
+   threshold* (the =alt > _climbHigh= branch in =_update=). A slow upward drift
+   or oscillation rides on top of the real climb and never ends — ending a climb
+   requires a sustained 3 m *descent*.
+
+With no GPS to anchor or bound it, indoor artifacts bank as climb: the real
+~12 m plus an estimated ~140 m of artifact.
+
+* Where this lives in the code
+
+- [[../lib/elevation_tracker.dart][lib/elevation_tracker.dart]] — barometer/GPS fusion and the gain hysteresis
+  (=_update=, the "every new high accrues" branch).
+- [[../lib/tracking_controller.dart][lib/tracking_controller.dart]] — feeds the tracker barometer pressure and GPS
+  fixes; holds the horizontal teleport/speed cap that elevation lacks.
+- [[./gps-accuracy.md][docs/gps-accuracy.md]] — the original write-up of the accuracy filters and
+  why elevation is fused this way.
+
+* What production apps do: DEM correction
+
+Strava and Garmin do *not* trust the barometer alone for the final number. After
+upload they apply server-side *Digital Elevation Model (DEM) correction*: the
+track's GPS coordinates are sampled against a terrain-elevation database, and the
+recorded elevations are replaced (or blended) with that known ground truth. The
+elevation then comes from *where you were* (lat/lon → terrain height), not from
+the pressure sensor, which sidesteps both barometric drift and the indoor
+artifact problem.
+
+Trade-off worth noting: a terrain DEM returns the *ground* height at a
+coordinate, so it cannot see indoor floors — a 3-storey indoor climb would read
+as ~0. Different failure mode, not strictly "better".
+
+Err deliberately has *no server component* (privacy-first, offline, free), so
+server-side DEM correction is out of scope. An on-device equivalent would mean
+bundling or downloading terrain tiles.
+
+References:
+- [[https://en.wikipedia.org/wiki/Digital_elevation_model][Digital elevation model (Wikipedia)]] — the concept.
+- [[https://en.wikipedia.org/wiki/Shuttle_Radar_Topography_Mission][SRTM]] — a widely used global elevation dataset.
+- [[https://opentopography.org/][OpenTopography]] — open access to high-resolution topography / DEM data.
+- [[https://www.usgs.gov/3d-elevation-program][USGS 3D Elevation Program (3DEP)]] — US national elevation data.
+
+* Leading fix ideas (not implemented)
+
+- *Vertical climb-rate cap.* Reject barometric gain that implies a faster ascent
+  than a human climbs (~0.2–0.5 m/s) — the elevation analog of the existing
+  horizontal teleport rejection. Keeps slow real climbs (stairs, hills), rejects
+  fast pressure jumps (doors, HVAC, elevators).
+- *Dead-band on "new high" accrual* so micro-oscillations during a confirmed
+  climb don't each bank.
+
+Both should be *validated against real per-sample data* before committing —
+otherwise we are just moving the number around.
+
+* How to gather better traces (debug mode)
+
+The =.gpx= and summary =.csv= do *not* capture per-sample barometer values — the
+flight recorder does. To investigate the next occurrence:
+
+1. Turn it on: *Settings → Developer → Debug mode → on* (an "Open debug tools"
+   row then appears).
+2. With debug mode on, each recording also writes =<stamp>-debug.csv= next to the
+   GPX — every raw GPS fix, every barometer sample, and the filter's verdict for
+   each.
+3. When elevation inflates again, keep that =-debug.csv=. It will show exactly
+   which samples banked the phantom gain, and let us tune a fix against real
+   numbers.
+
+Note: debug mode was *off* for the 2026-06-12 walk, so only the GPX exists for
+it — hence this is a hypothesis, not a confirmed root cause.
+
+* Status
+
+Observed, understood at the mechanism level, *not yet fixed*. Next step:
+reproduce with debug mode on and analyse the flight-recorder samples before
+designing the fix.
