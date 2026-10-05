@@ -2,11 +2,11 @@
 
 If you run outside, cycle or hike you're probably familiar with and locked into the ubiquitous duo of [[https://www.garmin.com/en-US/][Garmin]] and [[https://www.strava.com][Strava]]. They are pretty cool and encourage tons of people to keep moving.
 
-In 2026 your ride didn't really happen if its not on Strava. We've all heard that one.
+Your ride didn't really happen if its not on Strava.
 
-In 2026 no commerical phone appliction is immune to pressure to make more money. Strava restricts features and has tons of anti patterns to "encourage" people into subscription. Garmin is quickly moving to compete with Strava on features and [[https://www.garmin.com/en-US/c/subscription-plans/][subscriptions]]. Both also tend to focus a lot on the extremes of cycling and hiking be it remote trips or high performance athletics.
+In 2026 no commercial phone application is immune to pressure to make more money. Strava restricts features and has tons of anti patterns to "encourage" people into subscription. Garmin while providing high end hardware is quickly moving to compete with Strava on features and [[https://www.garmin.com/en-US/c/subscription-plans/][subscriptions]]. Both also tend to focus a lot on the extremes of cycling and hiking be it remote trips or high performance athletics. Nobody is looking to enable the average person to simply track how far they've ridden.
 
-These focus's are fine, but they don't serve the needs of a huge majority of people. Err is an attempt to address some of these shortcomings. It won't be for everyone but if you find yourself angry at some of the above, Err may be for you. Named around wandering errantly and to err and make a mistake Err is my vision for the other way to record and enjoy outdoor exercise. I hope to have it address:
+Err is an attempt to address some of these shortcomings. It won't be for everyone but if you find yourself angry at some of the above, Err may be for you. Named around wandering errantly and to err and make a mistake Err is my vision for the other way to record and enjoy outdoor exercise. I hope to have it address:
 
 - High Costs
 - User Invasive Behavior
@@ -28,7 +28,7 @@ You will be able to for example simply get a CSV file of all of your workouts.
 
 ** Focus on the Extreme and Gamification
 
-Strava and Garmin are for athletes and treat everyone as one. The second you are cycling you're presented with segment times, wattage and hydration advice. Err will strive to be simpler and easier to understand and less aggressive with pushing users to their next expensive piece of kit.
+Strava and Garmin target athletes and treat everyone as one. The second you are cycling you're presented with segment times, wattage and hydration advice. Err will strive to be simpler and easier to understand and less aggressive with pushing users to their next expensive piece of kit.
 
 You can make HUGE health gains by simply being consistent and getting some motion in each day. You do not need to put down 500 watts.
 
@@ -37,11 +37,19 @@ Strava and Garmin are not bad guys for this but this is not Err's goal. If you a
 
 ** Contributing
 
-I'll expand this later but Err is open source and open to contributions. I'll work to get a roadmap published and I'm open to suggestions. For now, raise PR's or raise issues to propose features you cannot impliment. I'm an application developer but I've never developed for Android and its been about 7 years since I did so for IOS. Right now I'm just bootstrapping this thing with Claude as I learn the tools.
+I'll expand this later but Err is open source and open to contributions. I'll work to get a roadmap published and I'm open to suggestions. For now, raise PR's or raise issues to propose features you cannot implement. I'm an application developer but I've never developed for Android and its been about 7 years since I did so for IOS. Right now I'm just bootstrapping this thing with Claude as I learn the tools.
 
 New to the codebase? Start with [[./docs/architecture.md][docs/architecture.md]] for how the project is laid out and where things live.
 
 Err is free but if you want to contribute financially I'll get the requisite donation tools up here eventually.
+
+*** LLM Usage
+
+This repository was bootstrapped using Claude Code and LLM's were used in building it. You are free to use an LLM in contributing but you must disclose it. There are some additional requirements that must be proven in your PR:
+
+- You must test your changes. Not the LLM made unit tests, you built the APK and tested it out in the real world.
+- Your code must be understandable to a human, in the current world me. If the LLM makes overly abstracted code, I'm going to reject your PR.
+- The code must adhere to the goals and style of this app. Changes that add online API's, require specific devices or are just icky crap will be rejected.
 
 ** License
 
@@ -53,6 +61,16 @@ This means:
 - If you run a modified version as a network service, you must make the source available to users of that service
 
 All contributions to this repository are made under the same license. By submitting a pull request you agree that your contribution will be licensed under the AGPL-3.0.
+
+It is my understanding that because LLM's are trained on GPL code and may include it, this is a requirement.
+
+But
+
+This project also wants to encourage that requirement of sharing. This app should always be free to install or inspect.
+
+** Installation
+
+Err is being built using Dart / Flutter. The goal here is something that can build cross platform. For now this repo produces APKs as part of its CI which may be installed with [[https://github.com/ImranR98/Obtainium][Obtanium]] on Android or by simply downloading the APK and installing it. While building for IOS and desktops is possible it has not been tested yet. If you want a great item to work on, IOS building instructions or CI would be awesome.
 
 ** Feature Plans
 
